@@ -62,7 +62,7 @@
                           (lambda (o) (print-error-trace o e)))
                          "#<no call stack>"))
          (msg (format "~a: ~a ~a" who message call-stack)))
-    (log-message map-widget-logger 'fatal msg)))
+    (log-message map-widget-logger 'fatal #f msg)))
 
 ;; Start a thread for `thunk`, but install a toplevel handler which logs any
 ;; uncaught exceptions from `thunk`.
@@ -71,7 +71,7 @@
    (lambda ()
      (with-handlers
        (((lambda (e) #t)
-         (lambda (e) (log-message 'fatal (format "thread <~a>: ~a" name e)))))
+         (lambda (e) (log-message 'fatal #f (format "thread <~a>: ~a" name e)))))
        (thunk)))))
 
 ;; Return a stored preference named `name` -- this is just a wrapper around
