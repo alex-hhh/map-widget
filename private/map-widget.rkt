@@ -27,12 +27,15 @@
          racket/sequence
          racket/stream
          racket/contract
+         racket/match
          "map-util.rkt"
          "map-tiles.rkt"
          "utilities.rkt")
 
 (define map-widget%/c
   (class/c
+   (init [parent (or/c (is-a?/c frame%) (is-a?/c dialog%) (is-a?/c panel%) (is-a?/c pane%))]
+         [position (or/c #f (vector/c flonum? flonum?))])
    (set-zoom-level (->m exact-nonnegative-integer? any/c))
    (get-zoom-level (->m exact-nonnegative-integer?))
    (clear-items (->m any/c))
@@ -44,6 +47,7 @@
    (set-group-zorder (->m (or/c #f symbol? integer?) positive? any/c))
    (delete-group (->m (or/c #f symbol? integer?) any/c))
    (center-map (->*m () ((or/c #f symbol?)) any/c))
+   (move-to (->m (vector/c flonum? flonum?) any/c))
    (resize-to-fit (->*m () ((or/c #f symbol?)) any/c))
    (export-image-to-file (->m path-string? any/c))))
 
@@ -332,7 +336,14 @@
 
 (define map-widget%
   (class object%
-    (init parent) (super-new)
+    (init parent [position #f]) (super-new)
+
+    ;; Initial position shown by the map, or by `center-map` when no tracks or
+    ;; markers are shown.  For no particular reason, the center of the map,
+    ;; when no bounding box is available is the middle of Swan River, Perth,
+    ;; Western Australia
+    (define default-map-position
+      (or position (vector -31.974762 115.839303)))
 
     ;;; data to display on the map
     (define tracks '())
@@ -706,18 +717,27 @@
             (let ([cp/ndcs (bbox-center/ndcs bbox)])
               (values (* (npoint-x cp/ndcs) max-coord)
                       (* (npoint-y cp/ndcs) max-coord)))
-            ;; For no particular reason, the center of the map, when no
-            ;; bounding box is available is the middle of Swan River, Perth,
-            ;; Western Australia
-            (let ([p (lat-lon->npoint -31.974762 115.839303)])
-              (values (* (npoint-x p) max-coord)
-                      (* (npoint-y p) max-coord))))))
+            (match-let (((vector lat lon) default-map-position))
+              (let ([p (lat-lon->npoint lat lon)])
+                (values (* (npoint-x p) max-coord)
+                        (* (npoint-y p) max-coord)))))))
 
     (define/public (center-map [group #f])
       (let-values (([cx cy] (get-center group))
                    ([cwidth cheight] (send canvas get-size)))
         (set! origin-x (- cx (/ cwidth 2)))
         (set! origin-y (- cy (/ cheight 2))))
+      (limit-origin canvas)
+      (request-refresh))
+
+    (define/public (move-to position)
+      (match-define (vector lat lon) position)
+      (let* ([p (lat-lon->npoint lat lon)]
+             [cx (* (npoint-x p) max-coord)]
+             [cy (* (npoint-y p) max-coord)])
+        (let-values (([cwidth cheight] (send canvas get-size)))
+          (set! origin-x (- cx (/ cwidth 2)))
+          (set! origin-y (- cy (/ cheight 2)))))
       (limit-origin canvas)
       (request-refresh))
 
