@@ -87,9 +87,12 @@
 
   (let-values (([cx cy] (get-center zoom-level)))
     (send dc draw-ellipse (+ cx -10) (+ cy -10) 20 20))
+
+  (match-define (bbox max-lat max-lon min-lat min-lon) bounding-box)
+
   (let ((max-coord (* tile-size (expt 2 zoom-level)))
-        (map1 (lat-lon->npoint (car (first bounding-box)) (cdr (first bounding-box))))
-        (map2 (lat-lon->npoint (car (second bounding-box)) (cdr (second bounding-box)))))
+        (map1 (lat-lon->npoint max-lat min-lon))
+        (map2 (lat-lon->npoint min-lat max-lon)))
     (let ((x1 (* (npoint-x map1) max-coord))
           (y1 (* (npoint-y map1) max-coord))
           (x2 (* (npoint-x map2) max-coord))
@@ -201,7 +204,7 @@
 
     (define/public (get-position)
       pos)
-    
+
     ))
 
 (define legend-color (make-object color% 86 13 24))
@@ -354,7 +357,12 @@
             (make-object color% 226 34 62)
             3 'solid 'round 'round))
     (define default-zorder 0.5)
-    
+
+    (define debug?
+      (get-pref 'map-widget:draw-map-bounding-box (lambda () #f)))
+    (define debug-pen
+      (send the-pen-list find-or-create-pen (make-object color% 86 13 24) 2 'solid))
+
     (define markers '())
     ;; A (vector lat lon) where we draw a marker
     (define current-location #f)
@@ -365,7 +373,7 @@
     ;; Updated by `on-current-location-updated`
     (define last-current-location-x #f)
     (define last-current-location-y #f)
-    
+
     (define zoom-level 12)
     (define max-tile-num (expt 2 zoom-level))
     (define max-coord (* tile-size max-tile-num))
@@ -455,7 +463,7 @@
             (define pen (hash-ref group-pens group default-pen))
             (for ([track (in-list tracks)] #:when (equal? (send track get-group) group))
               (send track draw dc zoom-level pen brush)))
-          
+
           (for ([marker markers])
             (send marker draw dc zoom-level))
           ;; Draw the current location marker, as set by
@@ -466,7 +474,15 @@
             (send dc draw-ellipse
                   (- last-current-location-x 12)
                   (- last-current-location-y 12)
-                  24 24))))
+                  24 24))
+
+          (when debug?
+            (send dc set-pen debug-pen)
+            (send dc set-brush brush)
+            (define bbox (get-bounding-box))
+            (when bbox
+              (draw-bounding-box dc bbox zoom-level)))))
+
       (draw-map-legend canvas dc zoom-level))
 
     (define (before-first-paint)
@@ -547,7 +563,7 @@
                (on-mouse-event this event))
              (define/override (on-char event)
                (on-key-event this event)))
-           [parent parent] [paint-callback on-canvas-paint]))
+           [parent parent] [paint-callback on-canvas-paint] [style '(no-autoclear)]))
 
     (define/public (set-zoom-level zl)
       ;; Ensure the zoom level is in the valid range
@@ -611,14 +627,14 @@
     (define (on-current-location-updated)
 
       (send auto-drag-map-timer stop)
-      
+
       ;; The current location has been cleared, refresh the map
       (when (and (not current-location)
                  (or last-current-location-x last-current-location-y))
         (set! last-current-location-x #f)
         (set! last-current-location-x #f)
         (request-refresh))
-     
+
       (when current-location
         (let-values (([w h] (send canvas get-size)))
           (let* ((point (lat-lon->npoint
@@ -643,7 +659,7 @@
               ;; creep out in small increments and never notice it!
               (set! last-current-location-x px)
               (set! last-current-location-y py))
-            
+
             (when track-current-location
               (define auto-drag-map
                 (cond
@@ -691,7 +707,7 @@
           track))
       (set! tracks ntracks)
       (request-refresh))
-          
+
     (define (get-bounding-box [group #f])
       (define bb
         (for/fold ([bb #f])
@@ -752,7 +768,7 @@
     ;; Can be overriden to be notified of zoom level changes
     (define/public (on-zoom-level-change zl)
       #f)
-    
+
     (define/public (export-image-to-file file-name)
       (let-values (([cwidth cheight] (send canvas get-size)))
         (let ((bmp (send canvas make-bitmap cwidth cheight)))

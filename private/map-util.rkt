@@ -232,9 +232,7 @@
         ;; mpp -- meters per pixel
         (let ((mpp-width (/ w canvas-width))
               (mpp-height (/ h canvas-height)))
-          (- (exact-floor (min (mpp->zoom-level mpp-width)
-                               (mpp->zoom-level mpp-height)))
-             1)))))
+          (mpp->zoom-level (max mpp-width mpp-height))))))
 
 ;; Return a track that has fewer points than TRACK but should display OK at
 ;; ZOOM-LEVEL.  We drop points from TRACK such that there is a minimum
