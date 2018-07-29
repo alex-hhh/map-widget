@@ -120,30 +120,30 @@
     (let* ((max-coord (* tile-size (expt 2 zoom-level)))
            (x (* (npoint-x pos) max-coord))
            (y (* (npoint-y pos) max-coord)))
-    (let-values (([w h b e] (send dc get-text-extent label)))
-      (let ((arrow-length 30)
-            (text-spacing 2))
-        (let ((label-baseline-x (+ x (* direction arrow-length)))
-              (label-baseline-y (+ y (- arrow-length)))
-              (label-length (+ w text-spacing text-spacing))
-              (label-height (+ h text-spacing text-spacing)))
-        (send dc draw-line x y label-baseline-x label-baseline-y)
-        (send dc draw-line
-              label-baseline-x label-baseline-y
-              (+ label-baseline-x (* direction label-length))
-              label-baseline-y)
-        (send dc set-pen
-              (send the-pen-list find-or-create-pen "black" 1 'transparent))
-        (let ((rectangle-y (- label-baseline-y label-height))
-              (rectangle-x (if (> direction 0)
-                               label-baseline-x
-                               (- label-baseline-x label-length))))
-          (send dc draw-rectangle
-                rectangle-x rectangle-y
-                label-length label-height)
-          (send dc draw-text label
-                (+ rectangle-x text-spacing)
-                (+ rectangle-y text-spacing)))))))))
+      (let-values (([w h b e] (send dc get-text-extent label)))
+        (let ((arrow-length 30)
+              (text-spacing 2))
+          (let ((label-baseline-x (+ x (* direction arrow-length)))
+                (label-baseline-y (+ y (- arrow-length)))
+                (label-length (+ w text-spacing text-spacing))
+                (label-height (+ h text-spacing text-spacing)))
+            (send dc draw-line x y label-baseline-x label-baseline-y)
+            (send dc draw-line
+                  label-baseline-x label-baseline-y
+                  (+ label-baseline-x (* direction label-length))
+                  label-baseline-y)
+            (send dc set-pen
+                  (send the-pen-list find-or-create-pen "black" 1 'transparent))
+            (let ((rectangle-y (- label-baseline-y label-height))
+                  (rectangle-x (if (> direction 0)
+                                   label-baseline-x
+                                   (- label-baseline-x label-length))))
+              (send dc draw-rectangle
+                    rectangle-x rectangle-y
+                    label-length label-height)
+              (send dc draw-text label
+                    (+ rectangle-x text-spacing)
+                    (+ rectangle-y text-spacing)))))))))
 
 (define (with-draw-context dc origin-x origin-y thunk)
   (let-values (([ox oy] (send dc get-origin)))
@@ -509,6 +509,7 @@
           (send dc set-smoothing 'smoothed)
           (send dc set-smoothing 'unsmoothed))
       (send redraw-timer stop)
+      (define-values (w h) (send canvas get-size))
       (let* ((request-redraw? #f)
 
              ;; Coordinates of the tile at canvas origin (need not be a valid
@@ -518,27 +519,25 @@
 
              ;; offset inside the tile where the canvas origin lives.
              (xofs (- origin-x (* tile0-x tile-size)))
-             (yofs (- origin-y (* tile0-y tile-size))))
+             (yofs (- origin-y (* tile0-y tile-size)))
 
-        (let-values (((w h) (send canvas get-size)))
-          (for* ((x (in-range 0 (+ 1 (exact-ceiling (/ w tile-size)))))
-                 (y (in-range 0 (+ 1 (exact-ceiling (/ h tile-size))))))
-                (let ((tile-x (+ tile0-x x))
-                      (tile-y (+ tile0-y y)))
-                  (when (and (valid-tile-num? tile-x) (valid-tile-num? tile-y))
-                    (let ((bmp (or (get-tile-bitmap (tile zoom-level tile-x tile-y))
-                                   (begin (set! request-redraw? #t) empty-bmp))))
-                      (send dc draw-bitmap bmp
-                            (- (* x tile-size) xofs)
-                            (- (* y tile-size) yofs))
-                      (when #f
-                        ;; Display tile id on the map itself
-                        (send dc draw-text (format "~a/~a/~a/~a"
-                                                   zoom-level tile-x tile-y
-                                                   (eq? bmp empty-bmp))
-                              (- (* x tile-size) xofs)
-                              (- (* y tile-size) yofs)))
-                      )))))
+             ;; Number of tiles on the width and height
+             (tw (add1 (exact-ceiling (/ w tile-size))))
+             (th (add1 (exact-ceiling (/ h tile-size)))))
+
+        ;; Tell the bitmap cache how many tiles to keep in the cache
+        (set-cache-threshold (* 5 tw th))
+
+        (for* ((x (in-range 0 tw))
+               (y (in-range 0 th)))
+          (let ((tile-x (+ tile0-x x))
+                (tile-y (+ tile0-y y)))
+            (when (and (valid-tile-num? tile-x) (valid-tile-num? tile-y))
+              (let ((bmp (or (get-tile-bitmap (tile zoom-level tile-x tile-y))
+                             (begin (set! request-redraw? #t) empty-bmp))))
+                (send dc draw-bitmap bmp
+                      (- (* x tile-size) xofs)
+                      (- (* y tile-size) yofs))))))
 
         (when (or request-redraw? (> (get-download-backlog) 0))
           (send redraw-timer start 100))))

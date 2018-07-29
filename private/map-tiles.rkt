@@ -46,7 +46,8 @@
  (tile-copyright-string (-> string?))
  (get-tile-provider-names (-> (listof string?)))
  (current-tile-provider-name (-> string?))
- (set-current-tile-provider (-> string? any/c)))
+ (set-current-tile-provider (-> string? any/c))
+ (set-cache-threshold (-> exact-nonnegative-integer? any/c)))
 
 
 
@@ -156,7 +157,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
     ;; Objects in this list will be downloaded again, but they will be added
     ;; to the end of the backlog (will have the lowest priority)
     (define problems '())
-    
+
     ;; counts number of elements in the backlog list
     (define sem-nitems (make-semaphore 0))
 
@@ -181,7 +182,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
              (when (> (length backlog) nitems)
                ;; Tell GET that there are items in the backlog
                (semaphore-post sem-nitems)))))))
-    
+
     ;; Get the next tile to be downloaded.  Will block until a tile is
     ;; available.  The tile is added to the DOWNLOADING list and will need to
     ;; be cleared.
@@ -230,7 +231,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
       (call-with-semaphore
        sem-acces
        (lambda ()
-         (+ 
+         (+
           (if backlog (length backlog) 0)
           (length downloading)))))
 
@@ -422,23 +423,23 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; AL-PREF-ALLOW-TILE-DOWNLOAD is #f.
 (define (net-fetch-tile tile connection)
   (with-handlers
-   (((lambda (e) #t)
-     (lambda (e)
-       (log-exception "net-fetch-tile" e)
-       (dbg-printf "Failed to download tile ~a~%" e)
-       #f)))
-   (if (allow-tile-download)
-       (parameterize ((current-https-protocol 'secure))
-         (let ((url (tile->url tile)))
-           (let-values (((port headers)
-                         (get-pure-port/headers url
-                                                (list user-agent)
-                                                #:connection connection)))
-             (define content-type (extract-field "Content-Type" headers))
-             (and (equal? content-type "image/png")
-                  (let ((data (port->bytes port)))
-                    (list tile url data))))))
-       #f)))
+    (((lambda (e) #t)
+      (lambda (e)
+        (log-exception "net-fetch-tile" e)
+        (dbg-printf "Failed to download tile ~a~%" e)
+        #f)))
+    (if (allow-tile-download)
+        (parameterize ((current-https-protocol 'secure))
+          (let ((url (tile->url tile)))
+            (let-values (((port headers)
+                          (get-pure-port/headers url
+                                                 (list user-agent)
+                                                 #:connection connection)))
+              (define content-type (extract-field "Content-Type" headers))
+              (and (equal? content-type "image/png")
+                   (let ((data (port->bytes port)))
+                     (list tile url data))))))
+        #f)))
 
 ;; Create a thread to download tiles from the network.  Requests are received
 ;; on REQUEST channel and replies are sent on REPLY channel.  Every downloaded
@@ -477,6 +478,11 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; Number of entries in BITMAP-CACHE before we start discarding bitmaps.
 (define cache-threshold 100)
 
+;; Timestamp when the cache was last rotated, this is currently used to
+;; trigger a message in the log if the cache is rotated too quickly (see issue
+;; #29)
+(define cache-rotate-timestamp (current-inexact-milliseconds))
+
 ;; Database requests are sent on this channel
 (define db-request-channel #f)
 
@@ -489,24 +495,41 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; TODO: stop these threads nicely when the application exits.
 (define worker-threads '())
 
+;; Set a new BITMAP-CACHE threshold -- this is the number of map tile bitmaps
+;; we keep in memory.  This function will increase the cache threshold, it
+;; will not update it if NEW-THRESHOLD is less than CACHE-THRESHOLD.
+;;
+;; The minimum cache threshold should be at least the number of tiles required
+;; to cover the map widget (see issue #29), but should preferably be a few
+;; times larger to allow for smooth scrolling and zooming.  Each map tile is
+;; approx 256 Kb in size, so the required memory to hold the bitmaps is at
+;; least 2 * cache-threshold * 0.25 Mb, the '2' is because we have a
+;; `secondary-bitmap-cache`.
+(define (set-cache-threshold new-threshold)
+  (when (> new-threshold cache-threshold)
+    (set! cache-threshold new-threshold)
+    (log-message map-widget-logger 'info #f
+                 (format "map cache threshold set to ~a tiles" new-threshold)
+                 #f #f)))
+
 ;; Shutdown all the worker threads.  We tell the threads to stop and allow
 ;; them to finish their current task.
 (define (shutdown-map-tile-workers)
 
   (when tbmanager
     (send tbmanager drain)
-  
+
     (for ((worker worker-threads))
       ;; We have several threads servicing the same channel, put a number of
       ;; #f values so that each thread gets one and shuts down.
       (async-channel-put db-request-channel #f))
-    
+
     (for ((worker worker-threads))
       (sync/timeout 0.1 (thread-dead-evt worker)))
 
     (for ((worker worker-threads))
       (kill-thread worker)))
-  
+
   ;; Close the database, communication channels and the rest.  If we just
   ;; switched tile providers, a new one will be set up by MAYBE-SETUP.
   (when tcache-db
@@ -556,32 +579,38 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
   ;; This is called from the map widget paint method, and if we throw an
   ;; exception from that,the whole thing locks up.
   (with-handlers
-   (((lambda (e) #t)
-     (lambda (e)
-       (log-exception (format "get-tile-bitmap(~a)" tile) e)
-       (dbg-printf "get-tile-bitmap(~a): ~a~%" tile e)
-       #f)))
+    (((lambda (e) #t)
+      (lambda (e)
+        (log-exception (format "get-tile-bitmap(~a)" tile) e)
+        (dbg-printf "get-tile-bitmap(~a): ~a~%" tile e)
+        #f)))
 
-   (maybe-setup)
-   (process-some-replies reply-channel bitmap-cache #f)
+    (maybe-setup)
+    (process-some-replies reply-channel bitmap-cache #f)
 
-   ;; If the tile count in the bitmap cache has reached the threshold, discard
-   ;; the secondary-bitmap-cache and rotate it. This way, we discard old
-   ;; unused tiles, trying to keep the memory down.
-   (when (> (hash-count bitmap-cache) cache-threshold)
-     (dbg-printf "Rotating tile cache~%")
-     (set! secondary-bitmap-cache bitmap-cache)
-     (set! bitmap-cache (make-hash)))
+    ;; If the tile count in the bitmap cache has reached the threshold, discard
+    ;; the secondary-bitmap-cache and rotate it. This way, we discard old
+    ;; unused tiles, trying to keep the memory down.
+    (when (> (hash-count bitmap-cache) cache-threshold)
+      (let ((timestamp (current-inexact-milliseconds)))
+        (when (> (- timestamp cache-rotate-timestamp) 500)
+          (log-message
+           map-widget-logger 'info #f
+           (format "tile cache rotating too fast, threshold is ~a tiles" cache-threshold)
+           #f #f))
+        (set! cache-rotate-timestamp timestamp)
+        (set! secondary-bitmap-cache bitmap-cache)
+        (set! bitmap-cache (make-hash))))
 
-   (cond ((hash-ref bitmap-cache tile #f))
-         ;; Check if this value is in the secondary bitmap cache.  If it is,
-         ;; move it back into the main cache, as it looks like it is in use.
-         ((hash-ref secondary-bitmap-cache tile #f)
-          => (lambda (v)
-               (hash-set! bitmap-cache tile v)
-               (hash-remove! secondary-bitmap-cache tile)
-               v))
-         (#t (fetch-tile tile db-request-channel) #f))))
+    (cond ((hash-ref bitmap-cache tile #f))
+          ;; Check if this value is in the secondary bitmap cache.  If it is,
+          ;; move it back into the main cache, as it looks like it is in use.
+          ((hash-ref secondary-bitmap-cache tile #f)
+           => (lambda (v)
+                (hash-set! bitmap-cache tile v)
+                (hash-remove! secondary-bitmap-cache tile)
+                v))
+          (#t (fetch-tile tile db-request-channel) #f))))
 
 (define (vacuum-tile-cache-database)
   (maybe-setup)
