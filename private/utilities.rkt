@@ -71,7 +71,8 @@
    (lambda ()
      (with-handlers
        (((lambda (e) #t)
-         (lambda (e) (log-message 'fatal #f (format "thread <~a>: ~a" name e)))))
+         (lambda (e) (log-message map-widget-logger
+                                  'fatal #f (format "thread <~a>: ~a" name e)))))
        (thunk)))))
 
 ;; Return a stored preference named `name` -- this is just a wrapper around

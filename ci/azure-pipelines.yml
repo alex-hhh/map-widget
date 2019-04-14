@@ -18,6 +18,10 @@ steps:
 - script: bash ./ci/install-racket.sh
   displayName: 'Instal Racket $(RACKET_VERSION)'
 
+  # Needed for running the tests
+- script: (/usr/bin/Xvfb :99 -screen 0 1280x1024x24 &)
+  displayName: "Start Xvfb for DISPLAY=$(DISPLAY)"
+
   # NOTE: the Azure pipelines build process checks out sources in a directory
   # which is not the package name, as such, we need to be explicit about the
   # package name when we install it, as raco will infer the name incorrectly.
