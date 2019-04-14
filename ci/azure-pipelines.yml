@@ -1,0 +1,30 @@
+# Azure Pipelines YAML to build and test a Racket Package.  The PACKAGE_NAME
+# variable needs to be updated to reflect the Racket package name that will be
+# built and tested, the rest does not need changing.
+
+# YAML schema reference: https://aka.ms/yaml
+
+pool:
+  vmImage: 'Ubuntu-16.04'
+
+variables:
+  PACKAGE_NAME: "map-widget"
+  RACKET_VERSION: 7.2
+  RACKET_DIR: $(Agent.BuildDirectory)/racket
+  PLTSTDERR: 'error warning@optimizer'
+
+steps:
+
+- script: bash ./ci/install-racket.sh
+  displayName: 'Instal Racket $(RACKET_VERSION)'
+
+  # NOTE: the Azure pipelines build process checks out sources in a directory
+  # which is not the package name, as such, we need to be explicit about the
+  # package name when we install it, as raco will infer the name incorrectly.
+
+- script: |
+    PATH="$(RACKET_DIR)/bin:$(PATH)"
+    raco pkg install --deps search-auto  --type dir --name $(PACKAGE_NAME)
+    raco setup --check-pkg-deps --pkgs $(PACKAGE_NAME)
+    raco test --no-run-if-absent --package $(PACKAGE_NAME)
+  displayName: 'Build and Test $(PACKAGE_NAME)'
