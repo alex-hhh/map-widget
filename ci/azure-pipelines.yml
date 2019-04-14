@@ -12,6 +12,7 @@ variables:
   RACKET_VERSION: 7.2
   RACKET_DIR: $(Agent.BuildDirectory)/racket
   PLTSTDERR: 'error warning@optimizer'
+  DISPLAY: :99.0
 
 steps:
 
