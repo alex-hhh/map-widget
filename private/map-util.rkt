@@ -172,12 +172,12 @@
   (bbox-merge bb (bbox (point-lat pos) (point-lon pos) (point-lat pos) (point-lon pos))))
 
 ;; Maximum zoom level we allow for the map widget.
-(define max-zoom-level
+(define max-zl
   (get-pref 'map-widget:max-map-zoom-level (lambda () 16)))
-(define min-zoom-level 1)
+(define min-zl 1)
 
-(define (get-max-zoom-level) max-zoom-level)
-(define (get-min-zoom-level) min-zoom-level)
+(define (max-zoom-level) max-zl)
+(define (min-zoom-level) min-zl)
 
 ;; Tiles are provided at zoom levels between 1 and 18, note that this is
 ;; different from `get-max-zoom-level`, which is an application option.
@@ -228,7 +228,7 @@
     ;; If the BBOX is too small, just return the max zoom level we have (the
     ;; calculation below might return +/-inf otherwise
     (if (and (< w 5.0) (< h 5.0))
-        (get-max-zoom-level)
+        (max-zoom-level)
         ;; mpp -- meters per pixel
         (let ((mpp-width (/ w canvas-width))
               (mpp-height (/ h canvas-height)))
@@ -308,9 +308,7 @@
  (tile-equal? (-> tile? tile? boolean?))
  (zoom-level->mpp (-> exact-positive-integer? flonum?))
  (mpp->zoom-level (-> flonum? exact-positive-integer?))
- (get-min-zoom-level (-> exact-positive-integer?))
- (get-max-zoom-level (-> exact-positive-integer?))
+ (min-zoom-level (-> exact-positive-integer?))
+ (max-zoom-level (-> exact-positive-integer?))
  (select-zoom-level (-> bbox? positive? positive? exact-positive-integer?))
  (simplify-track (-> sequence? exact-positive-integer? sequence?)))
-
-

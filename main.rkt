@@ -4,11 +4,13 @@
   (require rackunit))
 
 (require "private/map-widget.rkt"
+         "private/map-snip.rkt"
          "private/utilities.rkt"
          "private/map-util.rkt"
          "private/map-tiles.rkt")
 
 (provide map-widget%
+         map-snip%
          map-widget-logger
          map-distance/radians
          map-distance/degrees
