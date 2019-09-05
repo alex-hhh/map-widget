@@ -100,7 +100,7 @@
     ;; all snips, so, to allow having a map widget in the DrRacket REPL we
     ;; must provide a copy method.
     (define/override (copy)
-      (let ([snip (new map-snip% [width width] [height height])])
+      (let ([snip (new this% [width width] [height height])])
         (send snip copy-map-impl-from map-impl)
         snip))
 
@@ -120,10 +120,7 @@
       (define handled? (send map-impl on-event dc x y editorx editory event))
       (unless handled?
         (let ((editor (get-editor)))
-          (and editor (send editor on-default-event event))))
-      (let ((editor (get-editor)))
-        ;; WARNING: dogy!!!
-        (and editor (send editor set-caret-owner this))))
+          (and editor (send editor on-default-event event)))))
 
     (define/override (on-char dc x y editorx editory event)
       (define handled? (send map-impl on-char dc x y editorx editory event))
