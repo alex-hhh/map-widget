@@ -106,6 +106,8 @@
 
     (define/override (resize w h)
       (send map-impl resize w h)
+      (set! width w)
+      (set! height h)
       (send (send this get-admin) resized this #t))
 
     (define/private (get-editor)
