@@ -660,7 +660,8 @@
                       (+ dx (- (* x tile-size) xofs))
                       (+ dy (- (* y tile-size) yofs)))))))
 
-        (when (or request-redraw? (> (get-download-backlog) 0))
+        (when (and (allow-tile-download)
+                   (or request-redraw? (> (get-download-backlog) 0)))
           (send redraw-timer start 100))
 
         (send dc set-smoothing old-smoothing)))
