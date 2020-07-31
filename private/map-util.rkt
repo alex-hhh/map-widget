@@ -169,7 +169,8 @@
    (min (bbox-min-lon bb1) (bbox-min-lon bb2))))
 
 (define (bbox-extend bb pos)
-  (bbox-merge bb (bbox (point-lat pos) (point-lon pos) (point-lat pos) (point-lon pos))))
+  (bbox-merge bb (bbox (point-lat pos) (point-lon pos)
+                       (point-lat pos) (point-lon pos))))
 
 ;; Maximum zoom level we allow for the map widget.
 (define max-zl
@@ -210,14 +211,20 @@
        (equal? (tile-y tile1) (tile-y tile2))))
 
 
-;; convert a zoom level to a "meters per pixel" value
+;; convert a zoom level to a "meters per pixel" value, this would be accurate
+;; at the equator, as under the mercantor projection, the meters per pixel
+;; value depends on the latitude.
 (define (zoom-level->mpp zoom-level)
   (let ((n (expt 2 (+ 8 zoom-level))))
     (/ (* 2 pi earth-radius) n)))
 
 ;; convert a "meters per pixel" value to an approximate zoom level
 (define (mpp->zoom-level mpp)
-  (let ((n (/ (* 2 pi earth-radius) mpp)))
+  (let ((n (/ (* 2.0 pi earth-radius) mpp)))
+    ;; this conversion does not account for the fact that the mercantor
+    ;; projection is not uniform across the entire globe, as such the "meters
+    ;; per pixel" value would need to take latitude into account.  Instead we
+    ;; just subtract an extra 0.5 and truncate the result.
     (exact-truncate (- (/ (log n) (log 2)) 8))))
 
 ;; Return a zoom-level such that the contents of BBOX will fit in a canvas of

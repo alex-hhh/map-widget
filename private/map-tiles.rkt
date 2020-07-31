@@ -44,8 +44,8 @@
  (set-allow-tile-download (-> boolean? any/c))
  (shutdown-map-tile-workers (-> any/c))
  (tile-copyright-string (-> string?))
- (get-tile-provider-names (-> (listof string?)))
- (current-tile-provider-name (-> string?))
+ (get-tile-providers (-> (listof string?)))
+ (current-tile-provider (-> string?))
  (set-current-tile-provider (-> string? any/c))
  (set-cache-threshold (-> exact-nonnegative-integer? any/c)))
 
@@ -379,7 +379,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
         osm-provider)))
 
 ;; Return a list of names for all the tile providers
-(define (get-tile-provider-names)
+(define (get-tile-providers)
   (map tile-provider-name all-provivers))
 
 ;; Return the URL string for TILE.  The CURRENT-PROVIDER is used to obtain the
@@ -399,7 +399,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
   (build-path (data-directory) (tile-provider-cache-file current-provider)))
 
 ;; Return the name of the current tile provider
-(define (current-tile-provider-name)
+(define (current-tile-provider)
   (tile-provider-name current-provider))
 
 ;; Set a new tile provider from NAME.  The tile provider is also stored as a

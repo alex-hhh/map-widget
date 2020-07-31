@@ -9,7 +9,7 @@ pool:
 
 variables:
   PACKAGE_NAME: "map-widget"
-  RACKET_VERSION: 7.4
+  RACKET_VERSION: 7.7
   RACKET_DIR: $(Agent.BuildDirectory)/racket
   PLTSTDERR: 'error warning@optimizer'
   DISPLAY: :99.0

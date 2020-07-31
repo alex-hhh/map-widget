@@ -45,8 +45,10 @@
    (delete-group (->m (or/c #f symbol? integer?) any/c))
    (center-map (->*m () ((or/c #f symbol?)) any/c))
    (move-to (->m (vector/c flonum? flonum?) any/c))
-   (resize-to-fit (->*m () ((or/c #f symbol?)) any/c))
-   (export-image-to-file (->m path-string? any/c))))
+   (resize-to-fit (->*m () ((or/c #f symbol? number?)) any/c))
+   (export-image-to-file (->m path-string? any/c))
+   (begin-edit-sequence (->m any/c))
+   (end-edit-sequence (->m any/c))))
 
 (provide
  (contract-out [map-snip% map-snip%/c]))
@@ -122,7 +124,10 @@
       (define handled? (send map-impl on-event dc x y editorx editory event))
       (unless handled?
         (let ((editor (get-editor)))
-          (and editor (send editor on-default-event event)))))
+          (and editor (send editor on-default-event event))))
+      (let ((editor (get-editor)))
+        ;; WARNING: dogy!!!
+        (and editor (send editor set-caret-owner this))))
 
     (define/override (on-char dc x y editorx editory event)
       (define handled? (send map-impl on-char dc x y editorx editory event))
@@ -192,6 +197,12 @@
 
     (define/public (export-image-to-file file-name)
       (send map-impl export-image-to-file file-name))
+
+    (define/public (begin-edit-sequence)
+      (send map-impl begin-edit-sequence))
+
+    (define/public (end-edit-sequence)
+      (send map-impl end-edit-sequence))
 
     (define/public (on-zoom-level-change zl)
       (void))

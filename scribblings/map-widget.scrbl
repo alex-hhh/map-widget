@@ -307,7 +307,7 @@ inserted in a @racket[pasteboard%].
 }
 
 
-@defproc[(get-tile-provider-names) (listof string?)]{
+@defproc[(get-tile-providers) (listof string?)]{
 
   Returns a list of available tile providers.
 
@@ -318,7 +318,7 @@ inserted in a @racket[pasteboard%].
 
 }
 
-@defproc[(current-tile-provider-name) string?]{
+@defproc[(current-tile-provider) string?]{
 
   Return the name of the current tile provider
 

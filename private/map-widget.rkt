@@ -42,8 +42,11 @@
    (delete-group (->m (or/c #f symbol? integer?) any/c))
    (center-map (->*m () ((or/c #f symbol?)) any/c))
    (move-to (->m (vector/c real? real?) any/c))
-   (resize-to-fit (->*m () ((or/c #f symbol?)) any/c))
-   (export-image-to-file (->m path-string? any/c))))
+   (resize-to-fit (->*m () ((or/c #f symbol? number?)) any/c))
+   (export-image-to-file (->m path-string? any/c))
+   (begin-edit-sequence (->m any/c))
+   (end-edit-sequence (->m any/c))))
+
 
 (provide
  (contract-out [map-widget% map-widget%/c]))
@@ -57,19 +60,31 @@
 
     (define first-paint? #t)
 
+    ;; AB#7 -- when `resize-to-fit` is called before the canvas is shown, the
+    ;; calculated zoom level is not based on the canvas dimensions and thus it
+    ;; will be incorrect.  To avoid this, we set this flag and
+    ;; `on-superwindow-show` below will re-do the `resize-to-fit` when the
+    ;; window is actually shown.
+    (define delayed-resize-to-fit? #f)
+
     (define (on-canvas-paint canvas dc)
       (when first-paint?
         ;; If this is our first paint, we can determine the size of the canvas
-        ;; (before the first paint invocation, the size will be 0.
+        ;; (before the first paint invocation, the size will be 0).
         (let-values ([(w h) (send canvas get-size)])
           (send map-impl resize w h))
         (set! first-paint? #f))
+      (when delayed-resize-to-fit?
+        ;; Handle the delayed resize-to-fit here, it seems that handling it in
+        ;; `on-superwindow-show` is done after the first paint is called.
+        (resize-to-fit))
       (send map-impl draw dc 0 0))
 
     ;; This is the canvas on which we paint the map.  We intercept the mouse
     ;; and keyboard events to pass them on to the map-impl% object.
     (define canvas
       (new (class canvas% (init) (super-new)
+             (inherit get-dc)
              (define/override (on-size w h)
                (send map-impl resize w h))
              (define/override (on-event event)
@@ -77,9 +92,26 @@
                (send map-impl on-event dc 0 0 0 0 event))
              (define/override (on-char event)
                (define dc (send this get-dc))
-               (send map-impl on-char dc 0 0 0 0 event)))
+               (send map-impl on-char dc 0 0 0 0 event))
+
+             ;; NOTE: the `on-paint` method is called before
+             ;; on-superwindow-show, and the is-shown? method returns true
+             ;; before `on-superwindow-show` is called.  We attempt to control
+             ;; ordering here, so that a resize to fit is called before the
+             ;; first paint is done.  See also AB#7
+             (define visible? #f)
+
+             (define/override (on-superwindow-show shown?)
+               (unless (equal? visible? shown?)
+                 (set! visible? shown?)
+                 (when (and shown? delayed-resize-to-fit?)
+                   (resize-to-fit))))
+             (define/override (on-paint)
+               (set! visible? #t)
+               (on-canvas-paint this (get-dc)))
+             (define/public (is-visible?)
+               visible?))
            [parent parent]
-           [paint-callback on-canvas-paint]
            [style '(no-autoclear)]))
 
     ;; The map implementation, handles drawing and event handling
@@ -98,7 +130,10 @@
     (define zoom-level
       (case-lambda
         [() (send map-impl zoom-level)]
-        [(zl) (send map-impl zoom-level zl)]))
+        [(zl)
+         ;; Cancel any delayed-resize-to-fit? that may have been set
+         (set! delayed-resize-to-fit? #f)
+         (send map-impl zoom-level zl)]))
 
     (public show-map-layer)
     (define show-map-layer
@@ -137,10 +172,21 @@
       (send map-impl move-to position))
 
     (define/public (resize-to-fit [group #f])
-      (send map-impl resize-to-fit group))
+      (if (send canvas is-visible?)     ; AB#7
+          (begin
+            (send map-impl resize-to-fit group)
+            (set! delayed-resize-to-fit? #f))
+          (begin
+            (set! delayed-resize-to-fit? #t))))
 
     (define/public (export-image-to-file file-name)
       (send map-impl export-image-to-file file-name))
+
+    (define/public (begin-edit-sequence)
+      (send map-impl begin-edit-sequence))
+
+    (define/public (end-edit-sequence)
+      (send map-impl end-edit-sequence))
 
     ;; Can be overriden to be notified of zoom level changes
     (define/public (on-zoom-level-change zl)
