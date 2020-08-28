@@ -78,14 +78,26 @@
 ;; Return a stored preference named `name` -- this is just a wrapper around
 ;; `get-preference`
 (define (get-pref name fail-thunk)
-  (get-preference name fail-thunk 'timestamp))
+  (define application-get-pref
+    (with-handlers
+      (((lambda (e) #t) (lambda (e) #f)))
+      (dynamic-require 'the-application 'get-pref)))
+  (if application-get-pref
+      (application-get-pref name fail-thunk)
+      (get-preference name fail-thunk 'timestamp)))
 
 ;; Store a preference value -- this is just a wrapper around put-preferences,
 ;; but handles one preference only.
 (define (put-pref name value)
-  (put-preferences
-   (list name) (list value) 
-   (lambda (p) (error 'lock-fail "Failed to get the pref file lock" p))))
+  (define application-put-pref
+    (with-handlers
+      (((lambda (e) #t) (lambda (e) #f)))
+      (dynamic-require 'the-application 'put-pref)))
+  (if application-put-pref
+      (application-put-pref name value)
+      (put-preferences
+       (list name) (list value)
+       (lambda (p) (error 'lock-fail "Failed to get the pref file lock" p)))))
 
 (define the-data-directory #f)
 
@@ -94,9 +106,15 @@
 ;; to store the cache database for the map widget.
 (define (data-directory)
   (unless the-data-directory
-    (let ((dir (find-system-path 'pref-dir)))
-      ;; dir might not exist, but make-directory* never fails
-      (let ((pref-dir (build-path dir "map-widget")))
-        (make-directory* pref-dir)
-        (set! the-data-directory pref-dir))))
+    (define application-data-directory
+      (with-handlers
+        (((lambda (e) #t) (lambda (e) #f)))
+        (dynamic-require 'the-application 'data-directory)))
+    (if application-data-directory
+        (set! the-data-directory (application-data-directory))
+        (let ((dir (find-system-path 'pref-dir)))
+          ;; dir might not exist, but make-directory* never fails
+          (let ((pref-dir (build-path dir "map-widget")))
+            (make-directory* pref-dir)
+            (set! the-data-directory pref-dir)))))
   the-data-directory)
