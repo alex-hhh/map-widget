@@ -23,6 +23,7 @@
          racket/contract
          racket/sequence
          racket/stream
+         racket/match
          "utilities.rkt")
 
 ;; NOTE: provides are at the end of the file
@@ -33,6 +34,7 @@
 ;; Formulas from http://www.movable-type.co.uk/scripts/latlong.html
 
 (define earth-radius (->fl 6371000))    ; meters
+(define tile-size 256)                  ; size of the map tiles, in pixels
 
 (define (haversin theta)
   (fl/ (fl- 1.0 (flcos theta)) 2.0))
@@ -229,17 +231,20 @@
 
 ;; Return a zoom-level such that the contents of BBOX will fit in a canvas of
 ;; CANVAS-WIDTH, CANVAS-HEIGHT pixels
-(define (select-zoom-level bbox canvas-width canvas-height)
-  (unless bbox (error "select-zoom-level" bbox))
-  (let-values (([w h] (bbox-size bbox)))
-    ;; If the BBOX is too small, just return the max zoom level we have (the
-    ;; calculation below might return +/-inf otherwise
-    (if (and (< w 5.0) (< h 5.0))
-        (max-zoom-level)
-        ;; mpp -- meters per pixel
-        (let ((mpp-width (/ w canvas-width))
-              (mpp-height (/ h canvas-height)))
-          (mpp->zoom-level (max mpp-width mpp-height))))))
+(define (select-zoom-level bounding-box canvas-width canvas-height)
+  (unless bounding-box (error "select-zoom-level" bbox))
+  (match-define (bbox max-lat max-lon min-lat min-lon) bounding-box)
+  (let ((map1 (lat-lon->npoint max-lat min-lon))
+        (map2 (lat-lon->npoint min-lat max-lon)))
+    (let ((dx (- (npoint-x map2) (npoint-x map1)))
+          (dy (- (npoint-y map2) (npoint-y map1))))
+      (let/ec return
+        (for ([zl (in-range (max-zoom-level) (add1 (min-zoom-level)) -1)])
+          (define max-coord (* tile-size (expt 2 zl)))
+          (when (and (< (* dx max-coord) canvas-width)
+                     (< (* dy max-coord) canvas-height))
+            (return zl)))
+        (min-zoom-level)))))
 
 ;; Return a track that has fewer points than TRACK but should display OK at
 ;; ZOOM-LEVEL.  We drop points from TRACK such that there is a minimum
