@@ -32,9 +32,11 @@
  math/flonum
  racket/match
  racket/contract
+ geoid
  "utilities.rkt"          ; for get-pref
  "map-util.rkt"
- "map-tiles.rkt")
+ "map-tiles.rkt"
+ "point-cloud.rkt")
 
 (provide map-impl%)
 
@@ -269,6 +271,7 @@
 
     ))
 
+
 ;; Legend color, pen and font -- these are used to draw the map legend.
 (define legend-color (make-object color% 86 13 24))
 (define legend-pen
@@ -421,6 +424,10 @@
     (define group-zorder (make-hash))
 
     (define markers '())
+
+    (define point-cloud-color-map #f)   ; use the default one
+    (define point-cloud #f)             ; only one point cloud for now
+
     ;; A (vector lat lon) where we draw a marker representing the "current
     ;; location"
     (define the-current-location #f)
@@ -587,6 +594,9 @@
                   (clear-dc dc x y width height))
               (with-origin dc (- origin-x x) (- origin-y y)
                 (lambda ()
+                  (when point-cloud
+                    (send point-cloud draw dc the-zoom-level))
+
                   (define sorted-groups
                     (sort
                      (remove-duplicates (for/list ([t tracks]) (send t get-group)))
@@ -721,6 +731,7 @@
 
     ;; Clear the map of all tracks and markers.
     (define/public (clear)
+      (set! point-cloud #f)
       (set! tracks '())
       (set! markers '())
       (refresh))
@@ -741,6 +752,24 @@
       (define gmarker (new marker% [pos pos] [text text]
                            [direction direction] [color color]))
       (set! markers (cons gmarker markers))
+      (refresh))
+
+    (define/public (set-point-cloud-colors cm)
+      (set! point-cloud-color-map cm)
+      (when point-cloud
+        (send point-cloud set-color-map cm))
+      (refresh))
+
+    (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
+      (unless point-cloud
+        (set! point-cloud (new point-cloud%
+                               [color-map point-cloud-color-map]
+                               [refresh-callback (lambda () (refresh))])))
+      (send point-cloud add-points points #:format fmt)
+      (refresh))
+
+    (define/public (clear-point-cloud)
+      (set! point-cloud #f)
       (refresh))
 
     ;; Called when the current location has been updated, handles redisplay of
@@ -850,8 +879,9 @@
     ;; Return the bounding box for all tracks in GROUP, or if GROUP is #f for
     ;; all tracks on the map.
     (define/private (get-bounding-box [group #f])
+      (define hm-bb (and point-cloud (send point-cloud get-bounding-box)))
       (define bb
-        (for/fold ([outer #f])
+        (for/fold ([outer hm-bb])
                   ([track tracks]
                    #:when (or (not group) (equal? group (send track get-group))))
           (let ((bb (send track get-bounding-box)))

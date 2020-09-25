@@ -35,6 +35,17 @@
    (clear (->m any/c))
    (add-track (->m sequence? (or/c #f symbol? integer?) any/c))
    (add-marker (->m (vector/c real? real?) string? (or/c -1 1) (is-a?/c color%) any/c))
+
+   ;; Point cloud interface
+   (set-point-cloud-colors (->m (listof (or/c (list/c real? real? real?) ; RGB tripled
+                                              string?                    ; color name
+                                              (is-a?/c color%)))         ; color% object
+                                any/c))
+   (add-to-point-cloud (->*m (sequence?)
+                             (#:format (or/c 'geoids 'ordered-geoids 'lat-lng))
+                             any/c))
+   (clear-point-cloud (->m any/c))
+
    (current-location (->m (or/c (vector/c real? real?) #f) any/c))
    (track-current-location (->m boolean? any/c))
    (set-group-pen (->m (or/c #f symbol? integer?) (is-a?/c pen%) any/c))
@@ -149,6 +160,15 @@
 
     (define/public (add-marker pos text direction color)
       (send map-impl add-marker pos text direction color))
+
+    (define/public (set-point-cloud-colors cm)
+      (send map-impl set-point-cloud-colors cm))
+
+    (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
+      (send map-impl add-to-point-cloud points #:format fmt))
+
+    (define/public (clear-point-cloud)
+      (send map-impl clear-point-cloud))
 
     (define/public (current-location pos)
       (send map-impl current-location pos))

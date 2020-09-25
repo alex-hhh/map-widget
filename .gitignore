@@ -1,6 +1,20 @@
+# -*- mode: conf -*-
+*.bak
 *~
-\#*
+\#*\#
 .\#*
+scratch*
 .DS_Store
+Thumbs.db
+*.diff
+*.patch
+ChangeLog
+TAGS
+flycheck_*
+
+# Folders created when racket builds a package.
 compiled/
-/doc/
+doc/
+
+# Test result files
+test-results-*.xml

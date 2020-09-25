@@ -1,5 +1,6 @@
 #lang scribble/manual
 @require[@for-label[map-widget
+                    geoid
                     racket/class
                     racket/base
                     racket/draw
@@ -153,6 +154,47 @@ A widget to display map plus GPS tracks and markers.
 
 }
 
+@defmethod[(set-point-could-colors (cm (listof? (or/c (list real? real? real?)
+                                                      string?
+                                                      (is-a?/c color%))))) any/c]{
+
+  Set the color map used for rendering point clouds, the color map is a list
+  of colors, the first will be used for the least amount of points in a
+  location, while the last color for coloring locations with most points.
+  In-between colors will be used for locations of intermediate number of
+  points.
+
+}
+
+@defmethod[(add-to-point-cloud (points (or/c (listof? integer?)
+                                             (listof? (list/c real? real?))
+                                             (listof? (vector/c real? real?))))
+                    (#:format fmt (or/c 'lat-lng 'geoids 'ordered-geoids))) any/c]{
+
+  Add some GPS points to the point cloud.  The points can be specified either
+  as latitude/longitude pairs or as geoids (ordered or not).
+
+  @racket[fmt] specifies the format of input data: @racket['lat-lng] means the
+  data is a sequence of latitude/longitude pairs, @racket['geoids] means the
+  data is a list of geoids (possibly unordered), while
+  @racket['ordered-geoids] specifies that the data is an ordered list of
+  geoids.
+
+  For large amonts of data, ordered geoids are the fastest to process, but it
+  is only worthwhile using it if the data is already ordered (e.g stored as
+  such in a database).  If you only have latitude/longitude pairs, converting
+  them to geoids and sorting them will not make it faster.
+
+  For mode information on geoids, see the @other-manual['geoid] package.
+
+}
+
+@defmethod[(clear-point-cloud) any/c]{
+
+  Clear all the points in the point cloud.
+
+}
+
 @defmethod[(center-map (group (or/c #f integer? symbol?))) any/c]{
 
   Center the map around the specified track group, or around all tracks if
@@ -279,6 +321,47 @@ inserted in a @racket[pasteboard%].
 @defmethod[(delete-group (group (or/c #f integer? symbol?))) any/c]{
 
   Delete all GPS tracks within the specified group
+
+}
+
+@defmethod[(set-point-could-colors (cm (listof? (or/c (list real? real? real?)
+                                                      string?
+                                                      (is-a?/c color%))))) any/c]{
+
+  Set the color map used for rendering point clouds, the color map is a list
+  of colors, the first will be used for the least amount of points in a
+  location, while the last color for coloring locations with most points.
+  In-between colors will be used for locations of intermediate number of
+  points.
+
+}
+
+@defmethod[(add-to-point-cloud (points (or/c (listof? integer?)
+                                             (listof? (list/c real? real?))
+                                             (listof? (vector/c real? real?))))
+                    (#:format fmt (or/c 'lat-lng 'geoids 'ordered-geoids))) any/c]{
+
+  Add some GPS points to the point cloud.  The points can be specified either
+  as latitude/longitude pairs or as geoids (ordered or not).
+
+  @racket[fmt] specifies the format of input data: @racket['lat-lng] means the
+  data is a sequence of latitude/longitude pairs, @racket['geoids] means the
+  data is a list of geoids (possibly unordered), while
+  @racket['ordered-geoids] specifies that the data is an ordered list of
+  geoids.
+
+  For large amonts of data, ordered geoids are the fastest to process, but it
+  is only worthwhile using it if the data is already ordered (e.g stored as
+  such in a database).  If you only have latitude/longitude pairs, converting
+  them to geoids and sorting them will not make it faster.
+
+  For mode information on geoids, see the @other-manual['geoid] package.
+
+}
+
+@defmethod[(clear-point-cloud) any/c]{
+
+  Clear all the points in the point cloud.
 
 }
 
