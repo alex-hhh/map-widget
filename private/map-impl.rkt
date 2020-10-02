@@ -418,6 +418,14 @@
     ;; When #f, the tiles are not drawn, only the tracks.
     (define show-map-layer? #t)
 
+    ;; When #t, a resize-to-fit is called after new data is added to the map
+    ;; widget.  This flag is reset if the user moves or zooms the map.
+    (define auto-resize-to-fit? #f)
+
+    ;; When true a resize-to-fit was called inside an edit sequence and will
+    ;; be executed at the end of the edit sequence.
+    (define delayed-resize-to-fit? #f)
+
     ;;; data to display on the map
     (define tracks '())
     (define group-pens (make-hash))
@@ -538,6 +546,7 @@
                  (refresh))
                (set! last-mouse-x mouse-x)
                (set! last-mouse-y mouse-y))
+             (set! auto-resize-to-fit? #f)
              ;; Event was handled
              #t)
             (#t
@@ -705,6 +714,7 @@
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
          ;; Don't do anything unless the zoom level actually changes
          (unless (eq? zl the-zoom-level)
+           (set! auto-resize-to-fit? #f)
            (let ((scale (expt 2 (- zl the-zoom-level))))
              (set! the-zoom-level zl)
              (set! max-tile-num (expt 2 the-zoom-level))
@@ -745,6 +755,8 @@
     (define/public (add-track track group)
       (define gtrack (new track% [track track] [group group]))
       (set! tracks (cons gtrack tracks))
+      (when auto-resize-to-fit?
+        (resize-to-fit))
       (refresh))
 
     ;; Add a label on the map at a specified position a (Vector LAT LON)
@@ -752,6 +764,8 @@
       (define gmarker (new marker% [pos pos] [text text]
                            [direction direction] [color color]))
       (set! markers (cons gmarker markers))
+      (when auto-resize-to-fit?
+        (resize-to-fit))
       (refresh))
 
     (define/public (set-point-cloud-colors cm)
@@ -766,6 +780,8 @@
                                [color-map point-cloud-color-map]
                                [refresh-callback (lambda () (refresh))])))
       (send point-cloud add-points points #:format fmt)
+      (when auto-resize-to-fit?
+        (resize-to-fit))
       (refresh))
 
     (define/public (clear-point-cloud)
@@ -924,11 +940,18 @@
     ;; GROUP are visible.  If GROUP is #f, resize and center the map such that
     ;; all tracks are visible.
     (define/public (resize-to-fit [group #f])
-      (let ((bbox (get-bounding-box group)))
-        (when bbox
-          (zoom-level (select-zoom-level bbox width height))))
-      (center-map group)
-      (refresh))
+      (if (zero? edit-sequence-level)
+          (let ((saved-flag auto-resize-to-fit?)
+                (bbox (get-bounding-box group)))
+            (when bbox
+              (zoom-level (select-zoom-level bbox width height))
+              ;; calling zoom-level will reset this flag (it needs to as
+              ;; zoom-level is a public facing function), restore the previous
+              ;; value here.
+              (set! auto-resize-to-fit? saved-flag))
+            (center-map group)
+            (refresh))
+          (set! delayed-resize-to-fit? #t)))
 
     ;; move the map such that POSITION is in the center
     (define/public (move-to position)
@@ -947,6 +970,14 @@
         (draw (new bitmap-dc% [bitmap bmp]) 0 0)
         (send bmp save-file file-name 'png)))
 
+    (public auto-resize-to-fit)
+    (define auto-resize-to-fit
+      (case-lambda
+        [() auto-resize-to-fit?]
+        [(flag)
+         (set! auto-resize-to-fit? flag)
+         flag]))
+
     ;; Start an edit sequence.  The map will not be refreshed while an edit
     ;; sequence is in progress, allowing the caller to make many map
     ;; modifications in one go without a refresh being queued in-between.  An
@@ -961,6 +992,9 @@
         (error "map-impl%/end-edit-sequence: bad call"))
       (set! edit-sequence-level (sub1 edit-sequence-level))
       (when (zero? edit-sequence-level)
+        (when delayed-resize-to-fit?
+          (set! delayed-resize-to-fit? #f)
+          (resize-to-fit))
         (refresh)))
 
     (when track

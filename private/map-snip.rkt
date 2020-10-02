@@ -35,6 +35,8 @@
                         (-> exact-nonnegative-integer?)))
    (show-map-layer (case->m (-> boolean? any/c)
                             (-> boolean?)))
+   (auto-resize-to-fit (case->m (-> boolean? any/c)
+                                (-> boolean?)))
    (clear (->m any/c))
 
    (add-track (->m sequence? (or/c #f symbol? integer?) any/c))
@@ -173,6 +175,12 @@
       (case-lambda
         [() (send map-impl show-map-layer)]
         [(flag) (send map-impl show-map-layer flag)]))
+
+    (public auto-resize-to-fit)
+    (define auto-resize-to-fit
+      (case-lambda
+        [() (send map-impl auto-resize-to-fit)]
+        [(flag) (send map-impl auto-resize-to-fit flag)]))
 
     (define/public (clear)
       (send map-impl clear))

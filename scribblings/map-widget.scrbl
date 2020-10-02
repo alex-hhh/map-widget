@@ -217,6 +217,18 @@ A widget to display map plus GPS tracks and markers.
 
 }
 
+@defmethod*[([(auto-resize-to-fit [flag boolean?]) any/c]
+             [(auto-resize-to-fit) boolean?])]{
+
+  Set a flag whether the map should be automatically resized to fit after
+  adding a track, point cloud or marker.  This can be used in interactive
+  programs which add several tracks in sequence.
+
+  The flag will be automatically cleared when the user moves the map or zooms
+  it.
+
+}
+
 }
 
 @defclass[map-snip% snip% ()]{
@@ -386,6 +398,20 @@ inserted in a @racket[pasteboard%].
   tracks will fit on the map canvas.
 
 }
+
+
+@defmethod*[([(auto-resize-to-fit [flag boolean?]) any/c]
+             [(auto-resize-to-fit) boolean?])]{
+
+  Set a flag whether the map should be automatically resized to fit after
+  adding a track, point cloud or marker.  This can be used in interactive
+  programs which add several tracks in sequence.
+
+  The flag will be automatically cleared when the user moves the map or zooms
+  it.
+
+}
+
 
 }
 

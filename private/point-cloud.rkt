@@ -490,7 +490,7 @@
   '((18 11 7.0) ; NOTE: 10 would look better, but there is a huge cost for that
     (17 11 6.0) ; same here, 10 would look better
     (16 12 5.5)
-    (15 13 6.5)
+    (15 13 7.0)
     (14 13 5.0)
     (13 14 5.0)
     (12 14 4.0)
