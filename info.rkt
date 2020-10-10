@@ -6,12 +6,12 @@
                "db-lib"
                "math-lib"
                "base"
-               "geoid"))
+               "geoid"
+               "rackunit-lib"))
 (define build-deps '("scribble-lib"
                      "draw-doc"
                      "gui-doc"
                      "racket-doc"
-                     "rackunit-lib"
                      "al2-test-runner"))
 (define scribblings '(("scribblings/map-widget.scrbl" ())))
 (define pkg-desc "Map Widget based on Open Street Map tiles")
