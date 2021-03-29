@@ -940,7 +940,10 @@
     ;; GROUP are visible.  If GROUP is #f, resize and center the map such that
     ;; all tracks are visible.
     (define/public (resize-to-fit [group #f])
-      (if (zero? edit-sequence-level)
+      ;; NOTE: we always force a refresh if we are resizing to the group,
+      ;; since I am too lazy to record that the `delayed-resize-to-fit?`
+      ;; refers to a group (currently it will resize to fit the entire track.
+      (if (or (zero? edit-sequence-level) group)
           (let ((saved-flag auto-resize-to-fit?)
                 (bbox (get-bounding-box group)))
             (when bbox
