@@ -410,10 +410,11 @@
     (define edit-sequence-level 0)
 
     ;; Invoke the request-refresh callback, but only if we are not inside an
-    ;; edit sequence.
+    ;; edit sequence and if another refresh is not pending.
     (define/private (refresh)
       (when (zero? edit-sequence-level)
-        (request-refresh)))
+        (when (box-cas! good-to-refresh? #t #f)
+          (request-refresh))))
 
     ;; When #f, the tiles are not drawn, only the tracks.
     (define show-map-layer? #t)
@@ -425,6 +426,12 @@
     ;; When true a resize-to-fit was called inside an edit sequence and will
     ;; be executed at the end of the edit sequence.
     (define delayed-resize-to-fit? #f)
+
+    ;; A flag to indicate whether a refresh can be called -- it is set by draw
+    ;; and cleared by a `refresh` call, and it is used to avoid calling
+    ;; another refresh before the draw operation happened, since draw always
+    ;; draws the latest state anyway.
+    (define good-to-refresh? (box #t))
 
     ;;; data to display on the map
     (define tracks '())
@@ -456,6 +463,10 @@
 
     (define origin-x 0)
     (define origin-y 0)
+
+    ;; Number of tiles in the width and height of the drawing area
+    (define tw (add1 (exact-ceiling (/ width tile-size))))
+    (define th (add1 (exact-ceiling (/ height tile-size))))
 
     ;; These are needed to be able to implement `copy-from`, unfortunately, I
     ;; know no other way to get access to these members, but hopefully the
@@ -501,11 +512,17 @@
 
     ;; Resize the map to W, H dimensions
     (define/public (resize w h)
+      ;; the origin x and y are calculated off the old width and height!
       (set! origin-x (- (+ origin-x (/ width 2)) (/ w 2)))
       (set! origin-y (- (+ origin-y (/ height 2)) (/ h 2)))
       (limit-origin w h)
       (set! width w)
       (set! height h)
+      (set! tw (add1 (exact-ceiling (/ width tile-size))))
+      (set! th (add1 (exact-ceiling (/ height tile-size))))
+      ;; Tell the bitmap cache how many tiles to keep in the cache
+      (set-cache-threshold (* 10 tw th))
+
       ;; NOTE: do not call refresh here, we were informed by our "container"
       ;; (map-widget% or map-snip%) that we were resized, and they are
       ;; responsible for refreshing themselves if they consider it necessary.
@@ -594,6 +611,7 @@
     ;; height of the map is stored in this object.  Note that the code must
     ;; not assume that the entire device context is covered by the map.
     (define/public (draw dc x y)
+      (set-box! good-to-refresh? #t)
       (with-draw-context dc
         (lambda ()
           (with-clipping-rect dc x y width height
@@ -646,7 +664,12 @@
     ;; Timer to schedule a re-paint of the canvas when we have some missing
     ;; tiles -- hopefully the tiles will arrive by the time we get to re-paint
     (define redraw-timer
-      (new timer% [notify-callback (lambda () (refresh))]))
+      (new timer% [notify-callback
+                   (lambda ()
+                     ;; Not sure why this is needed, but timed redraws don't
+                     ;; work without it...
+                     (set-box! good-to-refresh? #t)
+                     (refresh))]))
 
     ;; Timer to schedule a map drag event to pan the current location in view
     (define auto-drag-map-timer
@@ -673,14 +696,7 @@
 
              ;; offset inside the tile where the canvas origin lives.
              (xofs (- origin-x (* tile0-x tile-size)))
-             (yofs (- origin-y (* tile0-y tile-size)))
-
-             ;; Number of tiles on the width and height
-             (tw (add1 (exact-ceiling (/ width tile-size))))
-             (th (add1 (exact-ceiling (/ height tile-size)))))
-
-        ;; Tell the bitmap cache how many tiles to keep in the cache
-        (set-cache-threshold (* 5 tw th))
+             (yofs (- origin-y (* tile0-y tile-size))))
 
         (for* ((x (in-range 0 tw))
                (y (in-range 0 th)))
@@ -697,9 +713,17 @@
         ;; `allow-tile-download` is #t -- this is done to make the
         ;; trends-chart tests pass, but it is likely incorrect, as we need to
         ;; refresh even when tiles are retrieved from disk.
-        (when (and (allow-tile-download)
-                   (or request-redraw? (> (get-download-backlog) 0)))
-          (send redraw-timer start 100))
+        (when (allow-tile-download)
+          (cond
+            (request-redraw?
+             ;; We didn't get tiles we needed, maybe they are still fetched
+             ;; from the database, request a redraw in a short amount of time.
+             (send redraw-timer start 50))
+            ((> (get-download-backlog) 0)
+             ;; So we have all the tiles we need, but more tiles are being
+             ;; downloaded.  Request a redraw with a longer timeout, since
+             ;; this will only update the tile backlog number.
+             (send redraw-timer start 1000))))
 
         (send dc set-smoothing old-smoothing)))
 

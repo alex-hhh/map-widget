@@ -24,7 +24,8 @@
          racket/math
          racket/match
          racket/format
-         "map-util.rkt")
+         "map-util.rkt"
+         "utilities.rkt")
 
 (provide point-cloud%)
 
@@ -422,10 +423,23 @@
    (gbuffer-semaphore gb)
    (lambda ()
      (match-define (gbuffer size data _semaphore) gb)
-     (define max-rank
-       (for/fold ([max-rank 0])
+     (define-values (ranks total-rank)
+       (for/fold ([ranks '()] [max-rank 0])
                  ([rank-pos (in-range gb-rank (+ (* size gb-stride) gb-rank) gb-stride)])
-         (max max-rank (vector-ref data rank-pos))))
+         (define rank (vector-ref data rank-pos))
+         (values
+          (cons rank ranks)
+          (+ max-rank (vector-ref data rank-pos)))))
+     ;; Increase contrast of colors by normalizing the rank, as described
+     ;; here:
+     ;; https://medium.com/strava-engineering/the-global-heatmap-now-6x-hotter-23fc01d301de
+     (define rank-scale
+       (for/fold ([cummulative 0]
+                  [result (hash)] #:result result)
+                 ([r (in-list (sort ranks <))])
+         (values
+          (+ cummulative r)
+          (hash-set result r (/ cummulative total-rank)))))
      (define max-coord (* tile-size (expt 2 zoom-level)))
      (define buffer (make-vector (* db-stride size)))
      (for ([pos (in-range 0 (* size gb-stride) gb-stride)]
@@ -435,8 +449,9 @@
        (match-define (npoint x y)
          (let-values ([(lat lon) (geoid->lat-lng center)])
            (lat-lon->npoint lat lon)))
-       (define scale (/ rank max-rank))
-       (define size (* point-size (+ 1 (* 1.5 scale))))
+       (define scale (hash-ref rank-scale rank))
+       ;;(define size (* point-size (+ 1 (* 1.5 scale))))
+       (define size point-size)
        (define half-size (/ size 2))
        (vector-set! buffer (+ db-pos db-x-offset) (- (* x max-coord) half-size))
        (vector-set! buffer (+ db-pos db-y-offset) (- (* y max-coord) half-size))
@@ -458,17 +473,22 @@
     (define max-color (sub1 (vector-length color-map-brushes)))
     (send dc set-pen (send the-pen-list find-or-create-pen "black" 0 'transparent))
     (define last-brush #f)
+    ;; NOTE: for now all our points are the same size in a single draw buffer,
+    ;; so we save a bit of time by referencing just the first one.
+    (define size (if (> (vector-length db) 0)
+                     (vector-ref db (+ 0 db-size-offset))
+                     1))
     (for ([pos (in-range 0 (vector-length db) db-stride)])
-      (define scale (vector-ref db (+ pos db-scale-offset)))
-      (define brush (exact-round (* scale max-color)))
-      (unless (equal? brush last-brush)
-        (set! last-brush brush)
-        (send dc set-brush (vector-ref color-map-brushes brush)))
       (define x (vector-ref db (+ pos db-x-offset)))
       (define y (vector-ref db (+ pos db-y-offset)))
       (when (and (> x x-min) (< x x-max) (> y y-min) (< y y-max))
         (set! ndrawn (add1 ndrawn))
-        (define size (vector-ref db (+ pos db-size-offset)))
+        (define scale (vector-ref db (+ pos db-scale-offset)))
+        ;; (define size (vector-ref db (+ pos db-size-offset)))
+        (define brush (exact-round (* scale max-color)))
+        (unless (equal? brush last-brush)
+          (set! last-brush brush)
+          (send dc set-brush (vector-ref color-map-brushes brush)))
         (send dc draw-ellipse x y size size))))
   ndrawn)
 
@@ -542,24 +562,41 @@
     ;; refreshed if it is outdated.
     (define/public (draw dc)
       (define current-generation (send point-cloud get-generation))
+      (define start (current-inexact-milliseconds))
       (unless (and db (= current-generation generation))
         ;; draw buffer needs to be re-created...
         (when (or (not make-db-thread) (thread-dead? make-db-thread))
           ;; ... and an update is not in progress
           (set! make-db-thread
-                (thread
+                (thread/log
                  (lambda ()
                    (define entries (send point-cloud get-point-cloud geo-level))
-                   (set! db
-                         (make-draw-buffer entries
-                                           #:point-size point-size
-                                           #:zoom-level zoom-level))
+                   (define start (current-inexact-milliseconds))
+                   (set! db (make-draw-buffer entries
+                                              #:point-size point-size
+                                              #:zoom-level zoom-level))
+                   (define duration (- (current-inexact-milliseconds) start))
+                   (when (> duration 100)
+                     (log-message map-widget-logger 'info #f
+                                  (format "make-draw-buffer took too long: ~a ms for ~a points at ~a zoom level"
+                                          (~r duration #:precision 2)
+                                          (gbuffer-size entries)
+                                          zoom-level)))
                    (set! generation current-generation)
                    ;; Call refresh here to let the map widget know that we are
                    ;; ready for a redraw.
                    (refresh-callback))))))
       (define ndrawn (if db (draw-buffer dc db the-brushes) 0))
-      #;(printf "zl = ~a, total ~a, drawn ~a~%" zoom-level (hash-count entries) ndrawn)
+      (define duration (- (current-inexact-milliseconds) start))
+      ;; Log a warning message if drawing the point cloud takes too long.
+      ;; 150ms is a bit long for my taste, but rendering times are between 20
+      ;; - 60ms for my data set, and the map can be panned OK with rendering
+      ;; times of 150ms...
+      (when (and (> duration 150) db)
+        (log-message map-widget-logger 'warning #f
+                     (format "point-cloud%/draw took too long: ~a ms, rendering ~a out of ~a points at ~a zoom level"
+                             (~r duration #:precision 2)
+                             ndrawn (/ (vector-length db) db-stride) zoom-level)))
       ndrawn)
 
     (set-color-map color-map)
