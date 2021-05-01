@@ -6,6 +6,7 @@
                "db-lib"
                "math-lib"
                "base"
+               "http-easy"
                "geoid"
                "rackunit-lib"))
 (define build-deps '("scribble-lib"
