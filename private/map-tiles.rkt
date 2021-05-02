@@ -436,9 +436,11 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
                                                  (list user-agent)
                                                  #:connection connection)))
               (define content-type (extract-field "Content-Type" headers))
+              ;; NOTE: we must always read all the data from the connection,
+              ;; for it to be re-used...
+              (define data (port->bytes port))
               (and (equal? content-type "image/png")
-                   (let ((data (port->bytes port)))
-                     (list tile url data))))))
+                   (list tile url data)))))
         #f)))
 
 ;; Create a thread to download tiles from the network.  Requests are received
