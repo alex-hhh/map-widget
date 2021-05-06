@@ -24,7 +24,7 @@
  racket/async-channel
  racket/port
  net/url
- net/url-connect
+ net/http-easy
  net/head
  racket/match
  racket/draw
@@ -421,7 +421,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; fetched from and the actual PNG image as a byte-array.  Return #f if
 ;; there's a problem.  Will not download any tiles if
 ;; AL-PREF-ALLOW-TILE-DOWNLOAD is #f.
-(define (net-fetch-tile tile connection)
+(define (net-fetch-tile tile)
   (with-handlers
     (((lambda (e) #t)
       (lambda (e)
@@ -429,16 +429,13 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
         (dbg-printf "Failed to download tile ~a~%" e)
         #f)))
     (if (allow-tile-download)
-        (parameterize ((current-https-protocol 'secure))
-          (let ((url (tile->url tile)))
-            (let-values (((port headers)
-                          (get-pure-port/headers url
-                                                 (list user-agent)
-                                                 #:connection connection)))
-              (define content-type (extract-field "Content-Type" headers))
-              (and (equal? content-type "image/png")
-                   (let ((data (port->bytes port)))
-                     (list tile url data))))))
+       (let ((url (tile->url tile)))
+         (define res (get url))
+         (define content-type (response-headers-ref res 'Content-Type)) 
+            (and (equal? content-type #"image/png")
+                   (let ((data (response-body res)))
+                     (response-close! res)
+                     (list tile url data))))
         #f)))
 
 ;; Create a thread to download tiles from the network.  Requests are received
@@ -451,18 +448,16 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
    (lambda ()
      (let ((connection (make-http-connection)))
        (let loop ((work-item (send tbmanager get)))
-         (if work-item
+         (and work-item
              (let* ([tile work-item]
-                    [data (net-fetch-tile tile connection)])
+                    [data (net-fetch-tile tile)])
                (send tbmanager clear tile (not (eq? data #f)))
                (when data
                  (match-define (list tile url blob) data)
                  (dbg-printf "NET Downloaded tile ~a~%" tile)
                  (store-tile tile url blob db-request-channel)
                  (async-channel-put reply (list tile blob)))
-               (loop (send tbmanager get)))
-             ;; Finished thread, close the HTTP connection
-             (http-connection-close connection)))))))
+               (loop (send tbmanager get)))))))))
 
 
 ;......................................................... main section ....
