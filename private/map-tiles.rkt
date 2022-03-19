@@ -115,15 +115,17 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 
 ;; Store the image (PNG) for a tile in the database.  Does an INSERT or UPDATE
 ;; as needed.
-(define (db-store-tile t url data db)
+(define (db-store-tile t tile-url data db)
   (call-with-transaction
    db
    (lambda ()
      (match-define (tile zoom x y) t)
      (define timestamp (current-seconds))
+     ;; Remove API key from the URL before storing it.
+     (define url0 (struct-copy url tile-url [query '()] [fragment #f]))
      (if (query-maybe-value db tile-exists-sql zoom x y)
-         (query-exec db update-tile-sql "" timestamp data zoom x y)
-         (query-exec db insert-tile-sql "" timestamp data zoom x y)))))
+         (query-exec db update-tile-sql (url->string url0) timestamp data zoom x y)
+         (query-exec db insert-tile-sql (url->string url0) timestamp data zoom x y)))))
 
 
 ;......................................................... tile backlog ....
