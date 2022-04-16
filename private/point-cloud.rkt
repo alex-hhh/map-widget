@@ -24,6 +24,9 @@
          racket/math
          racket/match
          racket/format
+         racket/flonum
+         racket/fixnum
+         racket/place
          "map-util.rkt"
          "utilities.rkt")
 
@@ -94,37 +97,36 @@
    (gbuffer-semaphore gb)
    (lambda ()
      (set-gbuffer-size! gb 0)              ; reset the buffer
-     (when (pair? geoids)
-       ;; .. and make sure we have enough room to put in all geoids (we might
-       ;; actually reserve more space than we need, but we trade off memory usage
-       ;; to avoid re-allocating the geoid buffer.
-       (make-room! gb (length geoids))
+     ;; .. and make sure we have enough room to put in all geoids (we might
+     ;; actually reserve more space than we need, but we trade off memory
+     ;; usage to avoid re-allocating the geoid buffer.
+     (make-room! gb (length geoids))
 
-       (define data (gbuffer-data gb))
+     (define data (gbuffer-data gb))
 
-       (define current-geoid (enclosing-geoid (car geoids) level))
-       (define current-rank 1)
-       (vector-set! data (+ 0 gb-geoid) current-geoid)
-       (vector-set! data (+ 0 gb-center) (car geoids))
-       (vector-set! data (+ 0 gb-rank) current-rank)
-       (define-values (position _geoid rank)
-         (for/fold ([position 0]
-                    [current-geoid current-geoid]
-                    [current-rank current-rank])
-                   ([geoid (in-list (cdr geoids))])
-           (define enclosing (enclosing-geoid geoid level))
-           (if (= enclosing current-geoid)
-               (values position current-geoid (add1 current-rank))
-               (let ([next (+ position gb-stride)])
-                 ;; Store previous rank
-                 (vector-set! data (+ position gb-rank) current-rank)
-                 (vector-set! data (+ next gb-geoid) enclosing)
-                 (vector-set! data (+ next gb-center) geoid)
-                 (vector-set! data (+ next gb-rank) 1)
-                 (values next enclosing 1)))))
-       ;; Store last rank update
-       (vector-set! data (+ position gb-rank) rank)
-       (set-gbuffer-size! gb (inexact->exact (add1 (/ position gb-stride))))))))
+     (define current-geoid (enclosing-geoid (car geoids) level))
+     (define current-rank 1)
+     (vector-set! data (+ 0 gb-geoid) current-geoid)
+     (vector-set! data (+ 0 gb-center) (car geoids))
+     (vector-set! data (+ 0 gb-rank) current-rank)
+     (define-values (position _geoid rank)
+       (for/fold ([position 0]
+                  [current-geoid current-geoid]
+                  [current-rank current-rank])
+                 ([geoid (in-list (cdr geoids))])
+         (define enclosing (enclosing-geoid geoid level))
+         (if (= enclosing current-geoid)
+             (values position current-geoid (add1 current-rank))
+             (let ([next (+ position gb-stride)])
+               ;; Store previous rank
+               (vector-set! data (+ position gb-rank) current-rank)
+               (vector-set! data (+ next gb-geoid) enclosing)
+               (vector-set! data (+ next gb-center) geoid)
+               (vector-set! data (+ next gb-rank) 1)
+               (values next enclosing 1)))))
+     ;; Store last rank update
+     (vector-set! data (+ position gb-rank) rank)
+     (set-gbuffer-size! gb (inexact->exact (add1 (/ position gb-stride)))))))
 
 ;; Re-group all geoids in the geoid buffer GB to be at the new LEVEL.  The
 ;; buffer is updated in place and ranks are accumulated if several geoids at
@@ -321,19 +323,8 @@
     ;; TODO: this value should come from the geoid package.
     (define num-levels 31)
 
-    ;; We re-calculate the bounding box when the size of the gbuffer at that
-    ;; level has changed.  Since a gbuffer of the same size means no new
-    ;; geoids have been added to it (maybe the rank has increased, but we
-    ;; don't care about that here).
-    (define bounding-box-gbuffer-size 0)
-
     ;; Bounding box for the geoid cloud (this is approximate, to make it fast)
     (define bounding-box #f)
-
-    ;; Each time geoids are added to the point cloud via `add-geoids`, the
-    ;; "generation" is incremented, allowing user code to determine if the
-    ;; cloud has changed since draw buffers were constructed for it.
-    (define generation 0)
 
     ;; The point cloud for each geoid level is a gbuffer, note that we start
     ;; by allocating a generous amount in the buffers to avoid re-allocation.
@@ -346,8 +337,7 @@
     ;; Add some geoids to the point cloud -- we assume that the POINTS list is
     ;; sorted.
     (define/public (add-geoids points)
-      (when (pair? points)
-
+      (unless (null? points)
         (gbuffer-fill! working-gb points min-level)
 
         (let* ([gb (vector-ref entries min-level)]
@@ -360,9 +350,7 @@
           (gbuffer-fold! (vector-ref entries level) working-gb)
           (when (< level max-level)
             (gbuffer-upscale! working-gb (add1 level))
-            (loop (add1 level))))
-
-        (set! generation (add1 generation))))
+            (loop (add1 level))))))
 
     ;; Return a point cloud at the specified LEVEL.
     ;;
@@ -375,12 +363,6 @@
       (when (> level max-level)
         (error "get-point-cloud: requested level above maximum"))
       (vector-ref entries level))
-
-    ;; Return the current generation of the point cloud -- the generation can
-    ;; be used by the calling code to determine if the point cloud has changed
-    ;; and they need to update their own data structures.
-    (define/public (get-generation)
-      generation)
 
     ;; Return the bounding latitude/longitude for the entire point cloud.
     ;; Note that this is an approximate value, see notes on
@@ -441,7 +423,7 @@
           (+ cummulative r)
           (hash-set result r (/ cummulative total-rank)))))
      (define max-coord (* tile-size (expt 2 zoom-level)))
-     (define buffer (make-vector (* db-stride size)))
+     (define buffer (make-shared-flvector (* db-stride size)))
      (for ([pos (in-range 0 (* size gb-stride) gb-stride)]
            [db-pos (in-range 0 (* size db-stride) db-stride)])
        (define rank (vector-ref data (+ pos gb-rank)))
@@ -453,10 +435,10 @@
        ;;(define size (* point-size (+ 1 (* 1.5 scale))))
        (define size point-size)
        (define half-size (/ size 2))
-       (vector-set! buffer (+ db-pos db-x-offset) (- (* x max-coord) half-size))
-       (vector-set! buffer (+ db-pos db-y-offset) (- (* y max-coord) half-size))
-       (vector-set! buffer (+ db-pos db-size-offset) size)
-       (vector-set! buffer (+ db-pos db-scale-offset) scale))
+       (flvector-set! buffer (+ db-pos db-x-offset) (real->double-flonum (- (* x max-coord) half-size)))
+       (flvector-set! buffer (+ db-pos db-y-offset) (real->double-flonum (- (* y max-coord) half-size)))
+       (flvector-set! buffer (+ db-pos db-size-offset) (real->double-flonum size))
+       (flvector-set! buffer (+ db-pos db-scale-offset) (real->double-flonum scale)))
      buffer)))
 
 ;; Draw a buffer prepared by `make-draw-buffer` onto the device context DC.
@@ -475,16 +457,16 @@
     (define last-brush #f)
     ;; NOTE: for now all our points are the same size in a single draw buffer,
     ;; so we save a bit of time by referencing just the first one.
-    (define size (if (> (vector-length db) 0)
-                     (vector-ref db (+ 0 db-size-offset))
+    (define size (if (> (flvector-length db) 0)
+                     (flvector-ref db (+ 0 db-size-offset))
                      1))
-    (for ([pos (in-range 0 (vector-length db) db-stride)])
-      (define x (vector-ref db (+ pos db-x-offset)))
-      (define y (vector-ref db (+ pos db-y-offset)))
+    (for ([pos (in-range 0 (flvector-length db) db-stride)])
+      (define x (flvector-ref db (+ pos db-x-offset)))
+      (define y (flvector-ref db (+ pos db-y-offset)))
       (when (and (> x x-min) (< x x-max) (> y y-min) (< y y-max))
         (set! ndrawn (add1 ndrawn))
-        (define scale (vector-ref db (+ pos db-scale-offset)))
-        ;; (define size (vector-ref db (+ pos db-size-offset)))
+        (define scale (flvector-ref db (+ pos db-scale-offset)))
+        ;; (define size (flvector-ref db (+ pos db-size-offset)))
         (define brush (exact-round (* scale max-color)))
         (unless (equal? brush last-brush)
           (set! last-brush brush)
@@ -508,23 +490,23 @@
 ;; ensuring that the geoids look good at all zoom levels.
 (define zoom-table
   '((18 11 7.0) ; NOTE: 10 would look better, but there is a huge cost for that
-    (17 11 6.0) ; same here, 10 would look better
-    (16 12 5.5)
-    (15 13 7.0)
-    (14 13 5.0)
-    (13 14 5.0)
-    (12 14 4.0)
+    (17 11 6.5) ; same here, 10 would look better
+    (16 11 5.5)
+    (15 12 5.0)
+    (14 12 3.5)
+    (13 13 4.5)
+    (12 14 4.5)
     (11 15 4.0)
     (10 16 4.0)
-    (9 17 4.0)
-    (8 18 4.0)
-    (7 19 4.5)
-    (6 20 6.0)
-    (5 21 6.0)
-    (4 22 8.0)
-    (3 23 9.0)
-    (2 24 9.0)
-    (1 25 9.0)))
+    (9 16 3.0)
+    (8 17 3.0)
+    (7 18 3.0)
+    (6 19 3.5)
+    (5 19 5.0)
+    (4 19 7.0)
+    (3 19 8.0)
+    (2 19 8.0)
+    (1 19 8.0)))
 
 ;; Maintain the heat map for a specified map zoom level, this will only
 ;; maintain the actual draw buffer, the data is stored in the POINT-CLOUD
@@ -551,6 +533,9 @@
     (define db #f)                      ; the draw-buffer
     (define make-db-thread #f)
     (define the-brushes #f)             ; initialized by set-color-map.
+    ;; When #t, we display a warning that point cloud draw buffer is being
+    ;; rebuilt and the displayed point cloud is not up to date.
+    (define show-warning? #f)
 
     (define/public (set-color-map cm)
       (set! the-brushes
@@ -558,7 +543,7 @@
                 ([color (in-list cm)])
               (send the-brush-list find-or-create-brush color 'solid))))
 
-    ;; Draw the heat map onto the device context.  The draw buffer is
+    ;; Draw the point cloud onto the device context.  The draw buffer is
     ;; refreshed if it is outdated.
     (define/public (draw dc)
       (define current-generation (send point-cloud get-generation))
@@ -567,22 +552,13 @@
         ;; draw buffer needs to be re-created...
         (when (or (not make-db-thread) (thread-dead? make-db-thread))
           ;; ... and an update is not in progress
+          (set! show-warning? #t)
           (set! make-db-thread
                 (thread/log
                  (lambda ()
-                   (define entries (send point-cloud get-point-cloud geo-level))
-                   (define start (current-inexact-milliseconds))
-                   (set! db (make-draw-buffer entries
-                                              #:point-size point-size
-                                              #:zoom-level zoom-level))
-                   (define duration (- (current-inexact-milliseconds) start))
-                   (when (> duration 100)
-                     (log-message map-widget-logger 'info #f
-                                  (format "make-draw-buffer took too long: ~a ms for ~a points at ~a zoom level"
-                                          (~r duration #:precision 2)
-                                          (gbuffer-size entries)
-                                          zoom-level)))
+                   (set! db (send point-cloud get-draw-buffer geo-level point-size zoom-level))
                    (set! generation current-generation)
+                   (set! show-warning? #f)
                    ;; Call refresh here to let the map widget know that we are
                    ;; ready for a redraw.
                    (refresh-callback))))))
@@ -596,7 +572,19 @@
         (log-message map-widget-logger 'warning #f
                      (format "point-cloud%/draw took too long: ~a ms, rendering ~a out of ~a points at ~a zoom level"
                              (~r duration #:precision 2)
-                             ndrawn (/ (vector-length db) db-stride) zoom-level)))
+                             ndrawn (/ (flvector-length db) db-stride) zoom-level)))
+
+      (when show-warning?
+        (define-values (x y) (send dc get-origin))
+        (define old-font (send dc get-font))
+        (define old-text-foreground (send dc get-text-foreground))
+        (send dc set-text-foreground (make-object color% 86 13 24))
+        (send dc set-font
+              (send the-font-list find-or-create-font 10 'default 'normal 'normal))
+        (send dc draw-text "Point cloud render data is updating..." (+ (- x) 10) (+ (- y) 10))
+        (send dc set-text-foreground old-text-foreground)
+        (send dc set-font old-font))
+
       ndrawn)
 
     (set-color-map color-map)
@@ -615,6 +603,118 @@
         (#t
          (error (format "Don't know how to make a color from ~a" item)))))
 
+;; Add POINTS to GCLOUD, a gcloud% instance.  POINTS can be in several data
+;; formats, as specified by FMT and this function converts POINTS to an
+;; ordered list of geoids and passes them to the GCLOUD object.
+;;
+;; FMT can be 'geoids -- an unordered list of geoids, 'ordered-geoids -- an
+;; ordered list of geoids (from smallest to largest), 'lat-lng -- a list
+;; containing either list or vector elements with the first two values being
+;; the latitude and longitude of the data point.
+(define (add-points-to-gcloud gcloud points fmt)
+  (define g
+    (case fmt
+      ((geoids) (sort points <))
+      ((ordered-geoids) points)
+      ((lat-lng)
+       (define geoids
+         (for/list ([p (in-list points)])
+           (define-values (lat lng)
+             (cond ((list? p) (values (list-ref p 0) (list-ref p 1)))
+                   ((vector? p) (values (vector-ref p 0) (vector-ref p 1)))
+                   (#t (error "unknown point format"))))
+           (lat-lng->geoid lat lng)))
+       (sort geoids <))
+      (else (error (format "point-cloud%/add-points: unknown format: ~a" fmt)))))
+  (send gcloud add-geoids g))
+
+;; Point-Cloud-Place -- hold information about the place (see Racket's place
+;; documentation) that processes the points in a gcloud.  SEM is a semaphore,
+;; controlling access to the places channel PL, while RDATA is a shared FX
+;; vector where the place can provide status information back -- we rely on
+;; the hope that writing to a fxvector slot is an atomic operation.
+(struct pcp (sem pl rdata) #:transparent)
+
+;; The elements in the pcp's rdata slot are the "generation" -- incremented
+;; each time "add-points" is called, "point-count" -- number of points that
+;; were processed and available for drawing, "total-count" -- total number of
+;; points that have been sent to the gcloud place, this includes the processed
+;; and unprocessed points.
+(define pcp-rdata-generation 0)
+(define pcp-rdata-point-count 1)
+(define pcp-rdata-total-count 2)
+(define pcp-rdata-size 3)
+
+;; Create a point could place to hold the gcloud% object in a separate OS
+;; thread for parallel processing.  Returns a PCP structure.  Internally, the
+;; place will accept messages on its input channel and execute commands
+;; according to the message type.
+(define (make-point-cloud-place)
+  (define pl
+    (place ch
+      (define cloud
+        ;; Use the minimum geo level from the zoom table as the minimum level
+        ;; for the point cloud.  We won't encounter lower zoom levels...
+        (let-values ([(min-level max-level)
+                        (for/fold ([min-level 30]
+                                   [max-level 0])
+                                  ([e (in-list zoom-table)])
+                          (define glevel (car (cdr e)))
+                          (values (min min-level glevel) (max max-level glevel)))])
+            (new gcloud% [min-level min-level] [max-level max-level])))
+      (define rdata (make-shared-fxvector pcp-rdata-size 0))
+      (place-channel-put ch rdata)      ; send this back first
+
+      (let loop ([message (sync ch)]
+                 [delayed-add-points '()])
+        (cond
+          (message
+           (when (list? message)
+             (case (car message)
+
+               ;; Points are added to a queue and will be processed when no
+               ;; messages are available (this is done so we don't delay
+               ;; `get-draw-buffer` and `get-bounding-box` messages.
+               ((add-points)
+                (define c (fxvector-ref rdata pcp-rdata-total-count))
+                (fxvector-set! rdata pcp-rdata-total-count (+ c (length (cadr message))))
+                (loop (sync/timeout 0 ch) (cons message delayed-add-points)))
+
+               ;; Get the bounding box of the point cloud
+               ((get-bounding-box)
+                ;; bbox structure cannot squeeze through a place channel...
+                (define bounding-box (send cloud get-bounding-box))
+                (if bounding-box
+                    (match-let ([(bbox a b c d) bounding-box])
+                      (place-channel-put ch (list a b c d)))
+                    (place-channel-put ch #f)))
+
+               ;; Make a draw buffer with the current contents of the gcloud
+               ((get-draw-buffer)
+                (match-define (list _tag geo-level point-size zoom-level) message)
+                (define start (current-inexact-monotonic-milliseconds))
+                (define entries (send cloud get-point-cloud geo-level))
+                (define db (make-draw-buffer entries #:point-size point-size #:zoom-level zoom-level))
+                (define duration (- (current-inexact-monotonic-milliseconds) start))
+                (place-channel-put ch (list db duration (gbuffer-size entries)))))
+
+             (loop (sync/timeout 0 ch) delayed-add-points)))
+
+          ((null? delayed-add-points)
+           (loop (sync ch) delayed-add-points))
+
+          (#t
+           (match-define (list _tag points format) (car delayed-add-points))
+           (add-points-to-gcloud cloud points format)
+           (define g (fxvector-ref rdata pcp-rdata-generation))
+           (fxvector-set! rdata pcp-rdata-generation (add1 g))
+           (define c (fxvector-ref rdata pcp-rdata-point-count))
+           (fxvector-set! rdata pcp-rdata-point-count (+ c (length points)))
+           (loop (sync/timeout 0 ch) (cdr delayed-add-points)))))))
+
+  (define rdata (place-channel-get pl))
+  (pcp (make-semaphore 1) pl rdata))
+
 ;; A point cloud layer on the map
 (define point-cloud%
   (class object%
@@ -626,36 +726,48 @@
     (unless color-map
       (set! color-map (map ->color default-color-map)))
 
-    (define gcloud
-      ;; Use the minimum geo level from the zoom table as the minimum level
-      ;; for the point cloud.  We won't encounter lower zoom levels...
-      (let-values ([(min-level max-level)
-                    (for/fold ([min-level 30]
-                               [max-level 0])
-                              ([e (in-list zoom-table)])
-                      (define glevel (car (cdr e)))
-                      (values (min min-level glevel) (max max-level glevel)))])
-        (new gcloud% [min-level min-level] [max-level max-level])))
+    (define gcloud-place (make-point-cloud-place))
 
     ;; Heat maps for each zoom level -- created as needed
     (define by-zoom-level (make-hash))
 
     (define/public (add-points points #:format (fmt 'lat-lng))
-      (define g
-        (case fmt
-          ((geoids) (sort points <))
-          ((ordered-geoids) points)
-          ((lat-lng)
-           (define geoids
-             (for/list ([p (in-list points)])
-               (define-values (lat lng)
-                 (cond ((list? p) (values (list-ref p 0) (list-ref p 1)))
-                       ((vector? p) (values (vector-ref p 0) (vector-ref p 1)))
-                       (#t (error "unknown point format"))))
-               (lat-lng->geoid lat lng)))
-           (sort geoids <))
-          (else (error (format "point-cloud%/add-points: unknown format: ~a" fmt)))))
-      (send gcloud add-geoids g))
+      (call-with-semaphore
+       (pcp-sem gcloud-place)
+       (lambda ()
+         (place-channel-put (pcp-pl gcloud-place) (list 'add-points points fmt)))))
+
+    (define/public (get-bounding-box)
+      (call-with-semaphore
+       (pcp-sem gcloud-place)
+       (lambda ()
+         (define bb (place-channel-put/get (pcp-pl gcloud-place) (list 'get-bounding-box)))
+         (if bb
+             (match-let ([(list a b c d) bb]) (bbox a b c d))
+             bb))))
+
+    (define/public (get-generation)
+      (fxvector-ref (pcp-rdata gcloud-place) pcp-rdata-generation))
+
+    (define/public (get-point-count)
+      (let ([rdata (pcp-rdata gcloud-place)])
+        (values
+         (fxvector-ref rdata pcp-rdata-point-count)
+         (fxvector-ref rdata pcp-rdata-total-count))))
+
+    (define/public (get-draw-buffer geo-level point-size zoom-level)
+      (call-with-semaphore
+       (pcp-sem gcloud-place)
+       (lambda ()
+         (match-define (list db duration point-count)
+           (place-channel-put/get
+            (pcp-pl gcloud-place)
+            (list 'get-draw-buffer geo-level point-size zoom-level)))
+         (when (> duration 100)
+           (log-message map-widget-logger 'info #f
+                        (format "make-draw-buffer took too long: ~a ms for ~a points at ~a zoom level"
+                                (~r duration #:precision 2) point-count zoom-level)))
+         db)))
 
     (define/private (pc-by-zoom-level zl)
       (define pc (hash-ref by-zoom-level zl #f))
@@ -663,13 +775,10 @@
         (set! pc (new point-cloud-by-zoom-level%
                       [color-map color-map]
                       [zoom-level zl]
-                      [point-cloud gcloud]
+                      [point-cloud this]
                       [refresh-callback refresh-callback]))
         (hash-set! by-zoom-level zl pc))
       pc)
-
-    (define/public (get-bounding-box)
-      (send gcloud get-bounding-box))
 
     (define/public (draw dc zoom-level)
       (send (pc-by-zoom-level zoom-level) draw dc))

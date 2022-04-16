@@ -189,6 +189,16 @@ A widget to display map plus GPS tracks and markers.
 
 }
 
+@defmethod[(get-point-count) (values integer? integer?)]{
+
+  Return the number of points in the point cloud as two values: the number of
+  points that have been processed and available for drawing, and the total
+  number of points that were added to the point cloud, this last value
+  includes points that are not yet processed, since point processing happens
+  in a separate OS thread (place).
+
+}
+
 @defmethod[(clear-point-cloud) any/c]{
 
   Clear all the points in the point cloud.

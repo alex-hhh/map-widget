@@ -46,6 +46,7 @@
    (add-to-point-cloud (->*m (sequence?)
                              (#:format (or/c 'geoids 'ordered-geoids 'lat-lng))
                              any/c))
+   (get-point-count (->m (values number? number?)))
    (clear-point-cloud (->m any/c))
 
    (current-location (->m (or/c (vector/c real? real?) #f) any/c))
@@ -133,7 +134,7 @@
            [width 100] [height 100]
            [zoom zoom]
            [position position]
-           [request-refresh (lambda () (send canvas refresh))]
+           [request-refresh (lambda () (queue-callback (lambda () (send canvas refresh))))]
            [on-zoom-level-change (lambda (zl) (on-zoom-level-change zl))]))
 
     ;; The methods below are provided as forwarding calls into the map-impl%
@@ -174,6 +175,9 @@
 
     (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
       (send map-impl add-to-point-cloud points #:format fmt))
+
+    (define/public (get-point-count)
+      (send map-impl get-point-count))
 
     (define/public (clear-point-cloud)
       (send map-impl clear-point-cloud))

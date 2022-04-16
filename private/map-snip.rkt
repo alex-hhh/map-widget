@@ -50,6 +50,7 @@
    (add-to-point-cloud (->*m (sequence?)
                              (#:format (or/c 'geoids 'ordered-geoids 'lat-lng))
                              any/c))
+   (get-point-count (->m (values number? number?)))
    (clear-point-cloud (->m any/c))
 
    (current-location (->m (or/c (vector/c flonum? flonum?) #f) any/c))
@@ -100,9 +101,11 @@
            [zoom zoom]
            [request-refresh
             (lambda ()
-              (let ([admin (send this get-admin)])
-                (when admin
-                  (send admin needs-update this 0 0 width height))))]
+              (queue-callback
+               (lambda ()
+                 (let ([admin (send this get-admin)])
+                   (when admin
+                     (send admin needs-update this 0 0 width height))))))]
            [on-zoom-level-change (lambda (zl) (on-zoom-level-change zl))]))
 
     ;; These methods are required by the snip% interface for this class to
@@ -196,6 +199,9 @@
 
     (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
       (send map-impl add-to-point-cloud points #:format fmt))
+
+    (define/public (get-point-count)
+      (send map-impl get-point-count))
 
     (define/public (clear-point-cloud)
       (send map-impl clear-point-cloud))

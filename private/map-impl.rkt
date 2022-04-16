@@ -656,7 +656,14 @@
                       (send dc set-brush brush)
                       (draw-bounding-box dc bbox the-zoom-level)))))
 
-              (draw-map-legend dc x y width height the-zoom-level))))))
+              (draw-map-legend dc x y width height the-zoom-level)))))
+
+      ;; Point cloud objects are processed in a separate thread, if there are
+      ;; outstanding points to process, request a redraw.
+      (when (and auto-resize-to-fit? point-cloud)
+        (define-values (c t) (send point-cloud get-point-count))
+        (when (< c t)
+          (send redraw-timer start 1000 #t))))
 
     ;; Return the dimensions of the map
     (define/public (get-size) (values width height))
@@ -669,6 +676,8 @@
                      ;; Not sure why this is needed, but timed redraws don't
                      ;; work without it...
                      (set-box! good-to-refresh? #t)
+                     (when (and point-cloud auto-resize-to-fit?)
+                       (resize-to-fit))
                      (refresh))]))
 
     ;; Timer to schedule a map drag event to pan the current location in view
@@ -718,12 +727,12 @@
             (request-redraw?
              ;; We didn't get tiles we needed, maybe they are still fetched
              ;; from the database, request a redraw in a short amount of time.
-             (send redraw-timer start 50))
+             (send redraw-timer start 100 #t))
             ((> (get-download-backlog) 0)
              ;; So we have all the tiles we need, but more tiles are being
              ;; downloaded.  Request a redraw with a longer timeout, since
              ;; this will only update the tile backlog number.
-             (send redraw-timer start 1000))))
+             (send redraw-timer start 1000 #t))))
 
         (send dc set-smoothing old-smoothing)))
 
@@ -804,9 +813,12 @@
                                [color-map point-cloud-color-map]
                                [refresh-callback (lambda () (refresh))])))
       (send point-cloud add-points points #:format fmt)
-      (when auto-resize-to-fit?
-        (resize-to-fit))
       (refresh))
+
+    (define/public (get-point-count)
+      (if point-cloud
+          (send point-cloud get-point-count)
+          (values 0 0)))
 
     (define/public (clear-point-cloud)
       (set! point-cloud #f)
