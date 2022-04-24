@@ -24,15 +24,9 @@
 (require
  racket/math
  racket/class
- racket/sequence
- racket/stream
- racket/draw
  racket/list
  racket/gui/base
- math/flonum
  racket/match
- racket/contract
- geoid
  "utilities.rkt"          ; for get-pref
  "map-util.rkt"
  "map-tiles.rkt"
@@ -663,7 +657,7 @@
       (when (and auto-resize-to-fit? point-cloud)
         (define-values (c t) (send point-cloud get-point-count))
         (when (< c t)
-          (send redraw-timer start 1000 #t))))
+          (send auto-resize-to-fit-timer start 500 #t))))
 
     ;; Return the dimensions of the map
     (define/public (get-size) (values width height))
@@ -671,14 +665,22 @@
     ;; Timer to schedule a re-paint of the canvas when we have some missing
     ;; tiles -- hopefully the tiles will arrive by the time we get to re-paint
     (define redraw-timer
-      (new timer% [notify-callback
-                   (lambda ()
-                     ;; Not sure why this is needed, but timed redraws don't
-                     ;; work without it...
-                     (set-box! good-to-refresh? #t)
-                     (when (and point-cloud auto-resize-to-fit?)
-                       (resize-to-fit))
-                     (refresh))]))
+      (new timer%
+           [notify-callback
+            (lambda ()
+              ;; Not sure why this is needed, but timed redraws don't work
+              ;; without it...
+              (set-box! good-to-refresh? #t)
+              (refresh))]
+           [just-once? #t]))
+
+    (define auto-resize-to-fit-timer
+      (new timer%
+           [notify-callback
+            (lambda ()
+              (when (and point-cloud auto-resize-to-fit?)
+                (resize-to-fit)))]
+           [just-once? #t]))
 
     ;; Timer to schedule a map drag event to pan the current location in view
     (define auto-drag-map-timer
@@ -813,7 +815,11 @@
                                [color-map point-cloud-color-map]
                                [refresh-callback (lambda () (refresh))])))
       (send point-cloud add-points points #:format fmt)
-      (refresh))
+      (if auto-resize-to-fit?
+          ;; This will also invoke a refres...
+          (send auto-resize-to-fit-timer start 500 #t)
+          ;; NO point in refreshing immediately as points won't be ready...
+          (send redraw-timer start 500 #t)))
 
     (define/public (get-point-count)
       (if point-cloud
