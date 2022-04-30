@@ -383,6 +383,40 @@
           (ty (+ Y 3)))
       (send dc draw-text slabel tx ty))))
 
+;; A timer which does not restart when it is already running.  Calling `start`
+;; on a `timer%` class will reset the alarm interval and, if `start` is called
+;; repeteadly, the timer will never notify.  This class changes that behavior,
+;; such that, calling `start` when the timer is already running it has no
+;; effect, so the timer will eventually notify even if `start` is called
+;; repeteadly.
+;;
+;; The implementation only supports one-off timers, where `just-once?` is #f,
+;; although it could be extended for repeat timers...
+(define one-shot-timer%
+  (class timer%
+    (init notify-callback)
+    (super-new [notify-callback notify-callback]
+               [just-once? #t]
+               [interval #f])
+
+    ;; NOTE: timer is initially not running, since we pass #f to `interval`
+    ;; for `super-new`, so we can initialize this to #f
+    (define running? #f)
+
+    (define/override (start msec [just-once? #f])
+      (unless running?
+        (set! running? #t)
+        ;; Ignore `just-once?` and set it to #t
+        (super start msec #t)))
+
+    (define/override (stop)
+      (set! running? #f)
+      (super stop))
+
+    (define/override (notify)
+      (set! running? #f)
+      (super notify))))
+
 ;; Map implementation -- serves as the implementation class for canvas% and
 ;; snip% based maps.  It implements the map drawing as well as event handling
 ;; code, but relies on the "outer" classes to call the right methods.
@@ -665,22 +699,21 @@
     ;; Timer to schedule a re-paint of the canvas when we have some missing
     ;; tiles -- hopefully the tiles will arrive by the time we get to re-paint
     (define redraw-timer
-      (new timer%
+      (new one-shot-timer%
            [notify-callback
             (lambda ()
               ;; Not sure why this is needed, but timed redraws don't work
               ;; without it...
               (set-box! good-to-refresh? #t)
-              (refresh))]
-           [just-once? #t]))
+              (refresh))]))
 
     (define auto-resize-to-fit-timer
-      (new timer%
+      (new one-shot-timer%
            [notify-callback
             (lambda ()
               (when (and point-cloud auto-resize-to-fit?)
-                (resize-to-fit)))]
-           [just-once? #t]))
+                (set-box! good-to-refresh? #t)
+                (resize-to-fit)))]))
 
     ;; Timer to schedule a map drag event to pan the current location in view
     (define auto-drag-map-timer
@@ -816,7 +849,7 @@
                                [refresh-callback (lambda () (refresh))])))
       (send point-cloud add-points points #:format fmt)
       (if auto-resize-to-fit?
-          ;; This will also invoke a refres...
+          ;; This will also invoke a refresh...
           (send auto-resize-to-fit-timer start 500 #t)
           ;; NO point in refreshing immediately as points won't be ready...
           (send redraw-timer start 500 #t)))
