@@ -100,7 +100,8 @@
           (y (asinh (tan r-lat))))
       (let ((x-norm (/ (+ 1 (/ x pi)) 2))
             (y-norm (/ (- 1 (/ y pi)) 2)))
-        (npoint x-norm y-norm)))))
+        (npoint (max 0.0 (min 1.0 x-norm))
+                (max 0.0 (min 1.0 y-norm)))))))
 
 (define (npoint->lat-lon p)
   (let ((x-norm (npoint-x p))
@@ -309,7 +310,7 @@
  (map-distance/degrees (-> flonum? flonum? flonum? flonum? flonum?))
  (map-bearing/radians (-> flonum? flonum? flonum? flonum? flonum?))
  (map-bearing/degrees (-> flonum? flonum? flonum? flonum? flonum?))
- (lat-lon->npoint (-> flonum? flonum? npoint?))
+ (lat-lon->npoint (-> real? real? npoint?))
  (npoint->lat-lon (-> npoint? (values flonum? flonum?)))
  (track-bbox (-> sequence? bbox?))
  (bbox-center (-> bbox? (values flonum? flonum?)))
