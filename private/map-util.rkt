@@ -54,10 +54,10 @@
 
 (define (map-distance/degrees lat1 lon1 lat2 lon2)
   (map-distance/radians
-   (degrees->radians lat1)
-   (degrees->radians lon1)
-   (degrees->radians lat2)
-   (degrees->radians lon2)))
+   (real->double-flonum (degrees->radians lat1))
+   (real->double-flonum (degrees->radians lon1))
+   (real->double-flonum (degrees->radians lat2))
+   (real->double-flonum (degrees->radians lon2))))
 
 ;; Calculate the initial bearing for traveling between two map coordinates
 ;; (bearing is returned in radians).  note that the bearing will have to
@@ -72,10 +72,10 @@
 
 (define (map-bearing/degrees lat1 lon1 lat2 lon2)
   (map-bearing/radians
-   (degrees->radians lat1)
-   (degrees->radians lon1)
-   (degrees->radians lat2)
-   (degrees->radians lon2)))
+   (real->double-flonum (degrees->radians lat1))
+   (real->double-flonum (degrees->radians lon1))
+   (real->double-flonum (degrees->radians lat2))
+   (real->double-flonum (degrees->radians lon2))))
 
 
 ;;................................................. normalized map point ....
