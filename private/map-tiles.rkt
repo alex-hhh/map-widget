@@ -425,19 +425,19 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; AL-PREF-ALLOW-TILE-DOWNLOAD is #f.
 (define (net-fetch-tile tile)
   (with-handlers
-    (((lambda (e) #t)
+    ((exn:fail?
       (lambda (e)
         (log-exception "net-fetch-tile" e)
         (dbg-printf "Failed to download tile ~a~%" e)
         #f)))
     (if (allow-tile-download)
-       (let ((url (tile->url tile)))
-         (define res (get url))
-         (define content-type (response-headers-ref res 'Content-Type)) 
-            (and (equal? content-type #"image/png")
-                   (let ((data (response-body res)))
-                     (response-close! res)
-                     (list tile url data))))
+        (let ((url (tile->url tile)))
+          (define res (get url))
+          (define content-type (response-headers-ref res 'Content-Type)) 
+          (and (equal? content-type #"image/png")
+               (let ((data (response-body res)))
+                 (response-close! res)
+                 (list tile url data))))
         #f)))
 
 ;; Create a thread to download tiles from the network.  Requests are received
@@ -576,7 +576,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
   ;; This is called from the map widget paint method, and if we throw an
   ;; exception from that,the whole thing locks up.
   (with-handlers
-    (((lambda (e) #t)
+    ((exn:fail?
       (lambda (e)
         (log-exception (format "get-tile-bitmap(~a)" tile) e)
         (dbg-printf "get-tile-bitmap(~a): ~a~%" tile e)

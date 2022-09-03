@@ -117,20 +117,20 @@
   (let ((new-database? (= 0 (query-value db "select count(*) from SQLITE_MASTER"))))
     (when new-database?
       (with-handlers
-       (((lambda (e) #t)
-         (lambda (e)
-           (disconnect db)
-           ;; database-file can be 'memory for in memory databases
-           (when (path-string? database-file)
-             (delete-file database-file))
-           (raise e))))
-       (let* ((statements (call-with-input-file schema-file collect-statements))
-              (statement-count (length statements)))
-         (for ([stmt statements]
-               [n statement-count])
-           (query-exec db stmt)
-           (when progress-callback
-             (progress-callback "Executing SQL statement..." (+ n 1) statement-count))))))))
+        ((exn:fail?
+          (lambda (e)
+            (disconnect db)
+            ;; database-file can be 'memory for in memory databases
+            (when (path-string? database-file)
+              (delete-file database-file))
+            (raise e))))
+        (let* ((statements (call-with-input-file schema-file collect-statements))
+               (statement-count (length statements)))
+          (for ([stmt statements]
+                [n statement-count])
+            (query-exec db stmt)
+            (when progress-callback
+              (progress-callback "Executing SQL statement..." (+ n 1) statement-count))))))))
 
 ;; An exception used to indicate that the database was a incorrect schema
 ;; version

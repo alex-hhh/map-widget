@@ -62,7 +62,7 @@
                           (lambda (o) (print-error-trace o e)))
                          "#<no call stack>"))
          (msg (format "~a: ~a ~a" who message call-stack)))
-    (log-message map-widget-logger 'fatal #f msg)))
+    (log-message map-widget-logger 'error #f msg)))
 
 ;; Start a thread for `thunk`, but install a toplevel handler which logs any
 ;; uncaught exceptions from `thunk`.
@@ -70,9 +70,9 @@
   (thread
    (lambda ()
      (with-handlers
-       (((lambda (e) #t)
+       ((exn:fail?
          (lambda (e) (log-message map-widget-logger
-                                  'fatal #f (format "thread <~a>: ~a" name e)))))
+                                  'error #f (format "thread <~a>: ~a" name e)))))
        (thunk)))))
 
 ;; Return a stored preference named `name` -- this is just a wrapper around
@@ -80,7 +80,7 @@
 (define (get-pref name fail-thunk)
   (define application-get-pref
     (with-handlers
-      (((lambda (e) #t) (lambda (e) #f)))
+      ((exn:fail? (lambda (e) #f)))
       (dynamic-require 'the-application 'get-pref)))
   (if application-get-pref
       (application-get-pref name fail-thunk)
@@ -91,7 +91,7 @@
 (define (put-pref name value)
   (define application-put-pref
     (with-handlers
-      (((lambda (e) #t) (lambda (e) #f)))
+      ((exn:fail? (lambda (e) #f)))
       (dynamic-require 'the-application 'put-pref)))
   (if application-put-pref
       (application-put-pref name value)
@@ -108,7 +108,7 @@
   (unless the-data-directory
     (define application-data-directory
       (with-handlers
-        (((lambda (e) #t) (lambda (e) #f)))
+        ((exn:fail? (lambda (e) #f)))
         (dynamic-require 'the-application 'data-directory)))
     (if application-data-directory
         (set! the-data-directory (application-data-directory))
