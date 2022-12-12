@@ -239,12 +239,12 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 
     ))
 
-(define tbmanager #f)
+(define the-tbmanager #f)
 
 ;; Return the number of tiles that are pending download.  This value is
 ;; displayed on the map canvas.
 (define (get-download-backlog)
-  (if tbmanager (send tbmanager num-items) 0))
+  (if the-tbmanager (send the-tbmanager num-items) 0))
 
 ;; Create a thread to service tile fetch and store request for the database.
 ;; This is done so that the main GUI is not blocked.  Operations are performed
@@ -252,7 +252,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; replies (tile PNG images) are sent to REPLY channel.  If a tile is not
 ;; found in the database or it is too old, a download request is enqueued on
 ;; NET-FETCH-REQUEST.
-(define (make-tile-fetch-store-thread db request reply)
+(define (make-tile-fetch-store-thread db tbmanager request reply)
   (thread/log
    #:name "tile db fbetch-store thread"
    (lambda ()
@@ -427,16 +427,16 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
   (with-handlers
     ((exn:fail?
       (lambda (e)
-        (log-exception "net-fetch-tile" e)
+        (log-exception (format "net-fetch-tile (~a)" tile) e)
         (dbg-printf "Failed to download tile ~a~%" e)
         #f)))
     (if (allow-tile-download)
         (let ((url (tile->url tile)))
-          (define res (get url))
-          (define content-type (response-headers-ref res 'Content-Type)) 
+          (define response (get url))
+          (define content-type (response-headers-ref response 'Content-Type)) 
           (and (equal? content-type #"image/png")
-               (let ((data (response-body res)))
-                 (response-close! res)
+               (let ((data (response-body response)))
+                 (response-close! response)
                  (list tile url data))))
         #f)))
 
@@ -444,22 +444,20 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; on REQUEST channel and replies are sent on REPLY channel.  Every downloaded
 ;; tile is also stored in the database by adding a request to
 ;; DB-REQUEST-CHANNEL.
-(define (make-tile-download-thread reply db-request-channel)
+(define (make-tile-download-thread tbmanager reply db-request-channel)
   (thread/log
    #:name "tile net fetch thread"
    (lambda ()
-     (let ((connection (make-http-connection)))
-       (let loop ((work-item (send tbmanager get)))
-         (and work-item
-             (let* ([tile work-item]
-                    [data (net-fetch-tile tile)])
-               (send tbmanager clear tile (not (eq? data #f)))
-               (when data
-                 (match-define (list tile url blob) data)
-                 (dbg-printf "NET Downloaded tile ~a~%" tile)
-                 (store-tile tile url blob db-request-channel)
-                 (async-channel-put reply (list tile blob)))
-               (loop (send tbmanager get)))))))))
+     (let loop ((tile (send tbmanager get)))
+       (and tile
+            (let ([data (net-fetch-tile tile)])
+              (send tbmanager clear tile (not (eq? data #f)))
+              (when data
+                (match-define (list tile url blob) data)
+                (dbg-printf "NET Downloaded tile ~a~%" tile)
+                (store-tile tile url blob db-request-channel)
+                (async-channel-put reply (list tile blob)))
+              (loop (send tbmanager get))))))))
 
 
 ;......................................................... main section ....
@@ -513,8 +511,8 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 ;; them to finish their current task.
 (define (shutdown-map-tile-workers)
 
-  (when tbmanager
-    (send tbmanager drain)
+  (when the-tbmanager
+    (send the-tbmanager drain)
 
     (for ((worker worker-threads))
       ;; We have several threads servicing the same channel, put a number of
@@ -557,8 +555,7 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
 (define (maybe-setup)
   (unless tcache-db
     (set! tcache-db (open-tcache-database (tile-cache-file)))
-    (set! tbmanager (new tile-backlog-manager%))
-    (send tbmanager start)
+    (set! the-tbmanager (new tile-backlog-manager%))
     (set! db-request-channel (make-async-channel #f))
     (set! reply-channel (make-async-channel #f))
     (set! bitmap-cache (make-hash))
@@ -566,11 +563,14 @@ where zoom_level = ? and x_coord = ? and y_coord = ?")))
     (set! worker-threads
           (list
            (make-tile-fetch-store-thread
-            tcache-db db-request-channel reply-channel)
+            tcache-db the-tbmanager db-request-channel reply-channel)
            (make-tile-download-thread
-            reply-channel db-request-channel)
+            the-tbmanager reply-channel db-request-channel)
            (make-tile-download-thread
-            reply-channel db-request-channel)))))
+            the-tbmanager reply-channel db-request-channel)
+           (make-tile-download-thread
+            the-tbmanager reply-channel db-request-channel)))
+    (send the-tbmanager start)))
 
 (define (get-tile-bitmap tile)
   ;; This is called from the map widget paint method, and if we throw an
