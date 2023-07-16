@@ -36,7 +36,7 @@
 ;; Logger used by the map widget to send various notification messages.  The
 ;; application should define a log-receiver to receive and display the
 ;; messages.
-(define map-widget-logger (make-logger 'map-widget (current-logger)))
+(define map-widget-logger (make-logger 'map-widget #f))
 
 ;; When #t some debug messages are printed to the console (this is intended
 ;; for debugging this package and the value needs to be changed in the source
