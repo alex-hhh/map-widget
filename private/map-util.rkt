@@ -1,4 +1,5 @@
 #lang racket/base
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; map-util.rkt -- various utilities related to maps
 
 ;; This file is part of map-widget
@@ -171,6 +172,10 @@
    (min (bbox-min-lat bb1) (bbox-min-lat bb2))
    (min (bbox-min-lon bb1) (bbox-min-lon bb2))))
 
+(define (bbox-from-position pos)
+  (bbox (point-lat pos) (point-lon pos)
+        (point-lat pos) (point-lon pos)))
+
 (define (bbox-extend bb pos)
   (bbox-merge bb (bbox (point-lat pos) (point-lon pos)
                        (point-lat pos) (point-lon pos))))
@@ -301,6 +306,7 @@
 ;;............................................................. provides ....
 
 (provide
+ tile-size
  (struct-out npoint)
  (struct-out bbox)
  (struct-out tile))
@@ -318,6 +324,7 @@
  (bbox-size (-> bbox? (values flonum? flonum?)))
  (bbox-merge (-> bbox? bbox? bbox?))
  (bbox-extend (-> bbox? vector? bbox?))
+ (bbox-from-position (-> vector? bbox?))
  (tile-equal? (-> tile? tile? boolean?))
  (zoom-level->mpp (-> exact-positive-integer? flonum?))
  (mpp->zoom-level (-> flonum? exact-positive-integer?))

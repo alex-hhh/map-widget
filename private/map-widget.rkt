@@ -1,10 +1,10 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; map-widget.rkt -- a widget that displays a map and can overlay GPS tracks
 ;; on it.
 
 ;; This file is part of map-widget
-;; Copyright (c) 2018 Alex Harsanyi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2018, 2023 Alex Harsanyi <AlexHarsanyi@gmail.com>
 
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -22,7 +22,9 @@
 (require racket/class
          racket/contract
          racket/gui/base
-         "map-impl.rkt")
+         "map-impl.rkt"
+         "layers.rkt"
+         "deprecated.rkt")
 
 (define map-widget%/c
   (class/c
@@ -34,11 +36,20 @@
                             (-> boolean?)))
    (auto-resize-to-fit (case->m (-> boolean? any/c)
                                 (-> boolean?)))
+   (center-map (->*m () ((or/c #f symbol?)) any/c))
+   (move-to (->m (vector/c real? real?) any/c))
+   (resize-to-fit (->*m () ((or/c #f symbol? number?)) any/c))
+   (export-image-to-file (->m path-string? any/c))
+   (begin-edit-sequence (->m any/c))
+   (end-edit-sequence (->m any/c))
+   (add-layer (->m (is-a?/c layer<%>) any/c))
+   (remove-layer (->m (or/c symbol? integer?) any/c))
+
+   ;; Deprecated interface
    (clear (->m any/c))
    (add-track (->m sequence? (or/c #f symbol? integer?) any/c))
    (add-marker (->m (vector/c real? real?) string? (or/c -1 1) (is-a?/c color%) any/c))
 
-   ;; Point cloud interface
    (set-point-cloud-colors (->m (listof (or/c (list/c real? real? real?) ; RGB tripled
                                               string?                    ; color name
                                               (is-a?/c color%)))         ; color% object
@@ -54,12 +65,8 @@
    (set-group-pen (->m (or/c #f symbol? integer?) (is-a?/c pen%) any/c))
    (set-group-zorder (->m (or/c #f symbol? integer?) positive? any/c))
    (delete-group (->m (or/c #f symbol? integer?) any/c))
-   (center-map (->*m () ((or/c #f symbol?)) any/c))
-   (move-to (->m (vector/c real? real?) any/c))
-   (resize-to-fit (->*m () ((or/c #f symbol? number?)) any/c))
-   (export-image-to-file (->m path-string? any/c))
-   (begin-edit-sequence (->m any/c))
-   (end-edit-sequence (->m any/c))))
+
+   ))
 
 
 (provide
@@ -70,7 +77,8 @@
 ;; map drawing is implemented in map-impl%
 (define map-widget%
   (class object%
-    (init parent [position #f] [zoom 12]) (super-new)
+    (init parent [position #f] [zoom 12])
+    (super-new)
 
     (define first-paint? #t)
 
@@ -162,40 +170,37 @@
         [(flag) (send map-impl auto-resize-to-fit flag)]))
 
     (define/public (clear)
-      (send map-impl clear))
+      (deprecated-clear map-impl))
 
     (define/public (add-track track group)
-      (send map-impl add-track track group))
+      (deprecated-add-track map-impl track group))
 
     (define/public (add-marker pos text direction color)
-      (send map-impl add-marker pos text direction color))
+      (deprecated-add-marker map-impl pos text direction color))
 
     (define/public (set-point-cloud-colors cm)
-      (send map-impl set-point-cloud-colors cm))
+      (deprecated-set-point-cloud-colors map-impl cm))
 
     (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
-      (send map-impl add-to-point-cloud points #:format fmt))
+      (deprecated-add-to-point-cloud map-impl points #:format fmt))
 
     (define/public (get-point-count)
-      (send map-impl get-point-count))
+      (deprecated-get-point-count map-impl))
 
     (define/public (clear-point-cloud)
-      (send map-impl clear-point-cloud))
+      (deprecated-clear-point-cloud map-impl))
 
     (define/public (current-location pos)
-      (send map-impl current-location pos))
+      (deprecated-current-location map-impl pos))
 
     (define/public (track-current-location flag)
-      (send map-impl track-current-location flag))
+      (deprecated-track-current-location map-impl flag))
 
     (define/public (set-group-pen group pen)
-      (send map-impl set-group-pen group pen))
+      (deprecated-set-group-pen map-impl group pen))
 
     (define/public (set-group-zorder group zorder)
-      (send map-impl set-group-zorder group zorder))
-
-    (define/public (delete-group group)
-      (send map-impl delete-group group))
+      (deprecated-set-group-zorder map-impl group zorder))
 
     (define/public (center-map [group #f])
       (send map-impl center-map group))
@@ -220,7 +225,16 @@
     (define/public (end-edit-sequence)
       (send map-impl end-edit-sequence))
 
+    (define/public (delete-group layer)
+      (deprecated-delete-group map-impl layer))
+
+    (define/public (add-layer layer)
+      (send map-impl add-layer layer))
+    (define/public (remove-layer layer)
+      (send map-impl remove-layer layer))
+
     ;; Can be overriden to be notified of zoom level changes
     (define/public (on-zoom-level-change zl)
       (void))
+
     ))

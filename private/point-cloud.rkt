@@ -1,5 +1,5 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; point-cloud.rkt -- render a point cloud (heat map) layer
 ;;
 ;; This file is part of map-widget

@@ -1,12 +1,12 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; map-impl.rkt -- map implementation, contains drawing code and keyboard and
 ;; event handling.
 ;;
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps
 ;; based on OpenStreetMap tiles
 ;;
-;; Copyright (c) 2019 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2019, 2023 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -24,33 +24,14 @@
 (require
  racket/math
  racket/class
- racket/list
  racket/gui/base
  racket/match
  "utilities.rkt"          ; for get-pref
  "map-util.rkt"
- "map-tiles.rkt"
- "point-cloud.rkt")
+ "tiles.rkt"
+ "layers.rkt")
 
 (provide map-impl%)
-
-(define tile-size 256)                  ; size of the map tiles, in pixels
-
-;; The pen and brush to draw the "current location" marker on the map
-(define current-location-pen
-  (send the-pen-list find-or-create-pen (make-color 68 114 196) 5 'solid))
-(define current-location-brush
-  (send the-brush-list find-or-create-brush (make-color 68 114 196 0.5) 'solid))
-
-;; Default pen and Z-order for the tracks added to the map (when the user does
-;; not specify one explicitly.
-(define default-pen
-  (send the-pen-list find-or-create-pen (make-object color% 226 34 62) 3 'solid 'round 'round))
-(define default-zorder 0.5)
-
-;; Pen to draw debug aids on the map.
-(define debug-pen
-  (send the-pen-list find-or-create-pen (make-object color% 86 13 24) 2 'solid))
 
 ;; Bitmap to draw when we don't receive a tile
 (define empty-bmp (make-bitmap tile-size tile-size #f))
@@ -59,110 +40,6 @@
 ;; when the map is dragged around.
 (define hand-cursor (make-object cursor% 'hand))
 (define arrow-cursor (make-object cursor% 'arrow))
-
-(define (point-lat p) (vector-ref p 0))
-(define (point-lon p) (vector-ref p 1))
-
-;; Construct a dc-path% that draws the TRACK at ZOOM-LEVEL
-(define (track->dc-path track zoom-level)
-  (define max-coord (* tile-size (expt 2 zoom-level)))
-
-  (define (p->pixel p)
-    (let ((p (lat-lon->npoint (point-lat p) (point-lon p))))
-      (values (* max-coord (npoint-x p))
-              (* max-coord (npoint-y p)))))
-
-  (let ((path (new dc-path%)))
-    (unless (null? track)
-      (let-values (([start-x start-y] (p->pixel (car track))))
-        (send path move-to start-x start-y))
-      (for ((p (in-list (cdr track))))
-        (let-values (([px py] (p->pixel p)))
-          (send path line-to px py))))
-    path))
-
-;; Draw the BOUNDING-BOX onto the device DC at the specified ZOOM-LEVEL.  This
-;; is intended for debugging purposes -- an outline of the bounding box is
-;; drawn plus a circle in the middle of it.  The pen and brush are not
-;; changed, so they can be set in before calling this method to the desired
-;; values.
-;;
-;; NOTE: this function assumes that the map origin has been set up correctly
-;; see `with-origin`
-;;
-(define (draw-bounding-box dc bounding-box zoom-level)
-
-  (define (get-center zoom-level)
-    (let ((max-coord (* tile-size (expt 2 zoom-level)))
-          (center/ndcs (bbox-center/ndcs bounding-box)))
-      (values (* (npoint-x center/ndcs) max-coord)
-              (* (npoint-y center/ndcs) max-coord))))
-
-  (let-values (([cx cy] (get-center zoom-level)))
-    (send dc draw-ellipse (+ cx -10) (+ cy -10) 20 20))
-  (match-define (bbox max-lat max-lon min-lat min-lon) bounding-box)
-  (let ((max-coord (* tile-size (expt 2 zoom-level)))
-        (map1 (lat-lon->npoint max-lat min-lon))
-        (map2 (lat-lon->npoint min-lat max-lon)))
-    (let ((x1 (* (npoint-x map1) max-coord))
-          (y1 (* (npoint-y map1) max-coord))
-          (x2 (* (npoint-x map2) max-coord))
-          (y2 (* (npoint-y map2) max-coord)))
-      (send dc draw-rectangle x1 y1 (- x2 x1) (- y2 y1)))))
-
-;; Draw a label (marker) at POS (a `map-point`), at ZOOM-LEVEL.  Label is the
-;; text to display, direction is 1 for the text to be displayed to the right,
-;; and -1 for the text to be displayed on the left of the marker, while color
-;; is the color of the label.
-;;
-;; NOTE: this function assumes that the map origin has been set up correctly
-;; see `with-origin`
-;;
-(define (draw-label dc pos zoom-level label direction color)
-
-  (send dc set-pen
-        (send the-pen-list find-or-create-pen color 2 'solid))
-  (send dc set-font
-        (send the-font-list find-or-create-font 10 'default 'normal 'bold))
-  (send dc set-brush
-        (send the-brush-list find-or-create-brush
-              (make-color
-               (send color red)
-               (send color green)
-               (send color blue)
-               0.7)
-              'solid))
-  (send dc set-text-foreground "white")
-
-  ;; NOTE: we assume that the dc origin has been corectly set up!
-  (let-values (([ox oy] (send dc get-origin)))
-    (let* ((max-coord (* tile-size (expt 2 zoom-level)))
-           (x (* (npoint-x pos) max-coord))
-           (y (* (npoint-y pos) max-coord)))
-    (let-values (([w h b e] (send dc get-text-extent label)))
-      (let ((arrow-length 30)
-            (text-spacing 2))
-        (let ((label-baseline-x (+ x (* direction arrow-length)))
-              (label-baseline-y (+ y (- arrow-length)))
-              (label-length (+ w text-spacing text-spacing))
-              (label-height (+ h text-spacing text-spacing)))
-        (send dc draw-line x y label-baseline-x label-baseline-y)
-        (send dc draw-line
-              label-baseline-x label-baseline-y
-              (+ label-baseline-x (* direction label-length))
-              label-baseline-y)
-        (send dc set-pen
-              (send the-pen-list find-or-create-pen "black" 1 'transparent))
-        (let ((rectangle-y (- label-baseline-y label-height))
-              (rectangle-x (if (> direction 0)
-                               label-baseline-x
-                               (- label-baseline-x label-length))))
-          (send dc draw-rectangle
-                rectangle-x rectangle-y
-                label-length label-height)
-          (send dc draw-text label
-                (+ rectangle-x text-spacing)
-                (+ rectangle-y text-spacing)))))))))
 
 ;; Set the draw context on the device context DC such that the origin is at
 ;; ORIGIN-X and ORIGIN-Y than execute THUNK, the original origin is restored
@@ -203,185 +80,6 @@
       (lambda () (send dc set-clipping-rect x y width height))
       thunk
       (lambda () (send dc set-clipping-region old-clipping-region)))))
-
-;; Represent a GPS track that can be drawn on a dc<%> at different zoom
-;; levels.  A track also has a group which is an integer, the map-impl% will
-;; treat all tracks within a group identically with respect to draw order and
-;; pen color.
-(define track%
-  (class object%
-    (init-field track group)
-    (super-new)
-
-    (define bbox #f)
-    (define debug?
-      (get-pref 'map-widget:draw-track-bounding-box (lambda () #f)))
-    (define paths-by-zoom-level (make-hash))
-
-    (define/private (get-dc-path zoom-level)
-      (let ((dc-path (hash-ref paths-by-zoom-level zoom-level #f)))
-        (unless dc-path
-          ;; no dc-path at this zoom level, create one now
-          (let ((strack (simplify-track track zoom-level)))
-            (set! dc-path (track->dc-path strack zoom-level))
-            (hash-set! paths-by-zoom-level zoom-level dc-path)))
-        dc-path))
-
-    ;; NOTE: this function assumes that the map origin has been set up correctly
-    ;; see `with-origin`
-    (define/public (draw dc zoom-level pen brush)
-      (let ((path (get-dc-path zoom-level)))
-        (send dc set-pen pen)
-        (send dc set-brush brush)
-        (send dc draw-path path 0 0))
-      (when debug?
-        (send dc set-pen debug-pen)
-        (send dc set-brush brush)
-        (draw-bounding-box dc bbox zoom-level)))
-
-    (define/public (get-bounding-box)
-      (unless bbox
-        (set! bbox (track-bbox track)))
-      bbox)
-
-    (define/public (get-group) group)
-
-    ))
-
-;; Represents a labeled marker drawn on the map at POS (a GPS coordinate) with
-;; TEXT and COLOR.  Direction is 1 if the text is drawn on the right and -1 if
-;; it is drawn on the left.
-(define marker%
-  (class object%
-    (init-field pos text direction color)
-    (super-new)
-
-    (define point (lat-lon->npoint (point-lat pos) (point-lon pos)))
-
-    (define/public (draw dc zoom-level)
-      (draw-label dc point zoom-level text direction color))
-
-    (define/public (get-position) pos)
-
-    ))
-
-
-;; Legend color, pen and font -- these are used to draw the map legend.
-(define legend-color (make-object color% 86 13 24))
-(define legend-pen
-  (send the-pen-list find-or-create-pen legend-color 2 'solid))
-(define legend-font
-  (send the-font-list find-or-create-font 8 'default 'normal 'normal))
-
-;; Map distance markers for each zoom level, for metric distances
-(define legend-distance-metric
-  (list
-   (list 1 8000000 "8000 km")
-   (list 2 4000000 "4000 km")
-   (list 3 2000000 "2000 km")
-   (list 4 1000000 "1000 km")
-   (list 5 500000 "500 km")
-   (list 6 250000 "250 km")
-   (list 7 100000 "100 km")
-   (list 8  50000 "50 km")
-   (list 9  25000 "25 km")
-   (list 10 15000 "15 km")
-   (list 11 10000 "10 km")
-   (list 12  5000 "5 km")
-   (list 13  2000 "2 km")
-   (list 14  1000 "1 km")
-   (list 15   500 "500 m")
-   (list 16   200 "200 m")
-   (list 17   100 "100 m")
-   (list 18    50 "50 m")))
-
-;; Map distance markers for each zoom level, for statute distances
-(define legend-distance-statute
-  (list
-   (list 1 12874752.0 "8000 mi")
-   (list 2 6437376.0 "4000 mi")
-   (list 3 3218688.0 "2000 mi")
-   (list 4 1609344.0 "1000 mi")
-   (list 5 804672.0 "500 mi")
-   (list 6 402336.0 "250 mi")
-   (list 7 160934.4 "100 mi")
-   (list 8  80467.20 "50 mi")
-   (list 9  32186.88 "20 mi")
-   (list 10 16093.44 "10 mi")
-   (list 11  8046.72 "5 mi")
-   (list 12  3218.68 "2 mi")
-   (list 13  1609.344 "1 mi")
-   (list 14   804.67 "0.5 mi")
-   (list 15   457.20 "500 yd")
-   (list 16   182.88 "200 yd")
-   (list 17    91.44 "100 yd")
-   (list 18    45.72 "50 yd")))
-
-;; Draw the map legend on the device context DC, assuming the map is drawn
-;; starting at DX, DY and has a WIDTH and HEIGHT.  The legend is drawn for the
-;; specific ZOOM-LEVEL.
-;;
-;; Note that this method does not assume that the map is drawn onto the entire
-;; device context, but only in the rectangle defined by DX, DY, WIDTH and
-;; HEIGHT.
-(define (draw-map-legend dc dx dy width height zoom-level)
-  (define-values (metric-distance metric-label)
-    (let ((entry (assq zoom-level legend-distance-metric)))
-      (if entry
-          (values (second entry) (third entry))
-          (values 1000 "1 km"))))
-  (define-values (statute-distance statute-label)
-    (let ((entry (assq zoom-level legend-distance-statute)))
-      (if entry
-          (values (second entry) (third entry))
-          (values 1609.344 "1 mi"))))
-  (define mlabel
-    (let ((backlog-size (get-download-backlog)))
-      (if (> backlog-size 0)
-          (format "~a  (ZL ~a; BL ~a)" metric-label zoom-level backlog-size)
-          (format "~a  (ZL ~a)" metric-label zoom-level))))
-  (define slabel statute-label)
-  (define mdist (/ metric-distance (zoom-level->mpp zoom-level)))
-  (define sdist (/ statute-distance (zoom-level->mpp zoom-level)))
-  (define-values (ox oy) (values 10 10))
-  (define-values (cw ch) (values width height))
-  (send dc set-brush
-        (send the-brush-list find-or-create-brush
-              (make-color 255 255 255 0.7) 'solid))
-  (send dc set-pen
-        (send the-pen-list find-or-create-pen "white" 1 'transparent))
-  (send dc set-font legend-font)
-  (send dc set-text-foreground legend-color)
-
-  (define Y (- (+ ch dy) oy 10))
-  (define X (+ ox dx))
-
-  (let-values (((w h x y) (send dc get-text-extent (tile-copyright-string) legend-font #t)))
-    (send dc draw-rectangle (- (+ cw dx) ox 5 w) (- (+ ch dy) oy y 5 h) (+ w 5 5) (+ h 5 5))
-    (send dc draw-text (tile-copyright-string) (- (+ cw dx) ox w) (- (+ ch dy -10) h))
-
-    ;; use the height of the copyright string to determine the height of the
-    ;; legend rectangle.
-    (send dc draw-rectangle (- X 5) (- Y 20)
-          (+ (max mdist sdist) 5 5) (+ (* 2 (+ h 3)) 5)))
-
-  (send dc set-pen legend-pen)
-
-  (send dc draw-line X Y (+ X (max mdist sdist)) Y)
-  (send dc draw-line X Y X (- Y 10))
-  (send dc draw-line X Y X (+ Y 10))
-  (send dc draw-line (+ X mdist) Y (+ X mdist) (- Y 10))
-  (send dc draw-line (+ X sdist) Y (+ X sdist) (+ Y 10))
-
-  (let-values (([w h b e] (send dc get-text-extent mlabel)))
-    (let ((tx (+ X 3))
-          (ty (- Y 3 h)))
-      (send dc draw-text mlabel tx ty)))
-
-  (let-values (([w h b e] (send dc get-text-extent slabel)))
-    (let ((tx (+ X 3))
-          (ty (+ Y 3)))
-      (send dc draw-text slabel tx ty))))
 
 ;; A timer which does not restart when it is already running.  Calling `start`
 ;; on a `timer%` class will reset the alarm interval and, if `start` is called
@@ -426,7 +124,6 @@
     (init-field [width 300] [height 200]
                 [request-refresh (lambda () (void))]
                 [position #f]
-                [track #f]
                 [on-zoom-level-change (lambda (zl) (void))])
     (super-new)
 
@@ -439,10 +136,18 @@
 
     ;; Invoke the request-refresh callback, but only if we are not inside an
     ;; edit sequence and if another refresh is not pending.
-    (define/private (refresh)
-      (when (zero? edit-sequence-level)
-        (when (box-cas! good-to-refresh? #t #f)
-          (request-refresh))))
+    (define/public (refresh #:maybe-resize (maybe-resize #f) #:delay (refresh-delay #f))
+      (if (and (real? refresh-delay) (positive? refresh-delay))
+          (if auto-resize-to-fit?
+              ;; This will also invoke a refresh...
+              (send auto-resize-to-fit-timer start refresh-delay #t)
+              ;; NO point in refreshing immediately as points won't be ready...
+              (send redraw-timer start refresh-delay #t))
+          (when (zero? edit-sequence-level)
+            (when (box-cas! good-to-refresh? #t #f)
+              (if (and auto-resize-to-fit? maybe-resize)
+                  (resize-to-fit)
+                  (request-refresh))))))
 
     ;; When #f, the tiles are not drawn, only the tracks.
     (define show-map-layer? #t)
@@ -461,68 +166,38 @@
     ;; draws the latest state anyway.
     (define good-to-refresh? (box #t))
 
-    ;;; data to display on the map
-    (define tracks '())
-    (define group-pens (make-hash))
-    (define group-zorder (make-hash))
-
-    (define markers '())
-
-    (define point-cloud-color-map #f)   ; use the default one
-    (define point-cloud #f)             ; only one point cloud for now
-
-    ;; A (vector lat lon) where we draw a marker representing the "current
-    ;; location"
-    (define the-current-location #f)
-    ;; When #t, the map is panned so that the current-location is in the
-    ;; center of the view, this panning is animated
-    (define should-track-current-location #f)
-    ;; The X, Y coordinates of the current location (in canvas coordinates).
-    ;; Updated by `on-current-location-updated`
-    (define last-current-location-x #f)
-    (define last-current-location-y #f)
-
+    (define the-layers
+      (list (new map-legend-layer% [name 'default-map-legend-layer] [admin this])))
+    ;; Layers which want to receive mouse events
+    (define the-mouse-event-layers
+      null)
     (define the-zoom-level zoom)
     (define max-tile-num (expt 2 the-zoom-level))
     (define max-coord (* tile-size max-tile-num))
-
-    (define/private (valid-tile-num? n) (and (>= n 0) (< n max-tile-num)))
-    (define/private (valid-coord? n) (and (>= n 0) (< n max-coord)))
-
     (define origin-x 0)
     (define origin-y 0)
+
+    (define/private (valid-tile-num? n) (and (>= n 0) (< n max-tile-num)))
+    (define/public (get-max-coord) max-coord)
+    (define/public (get-origin) (values origin-x origin-y))
 
     ;; Number of tiles in the width and height of the drawing area
     (define tw (add1 (exact-ceiling (/ width tile-size))))
     (define th (add1 (exact-ceiling (/ height tile-size))))
 
-    ;; These are needed to be able to implement `copy-from`, unfortunately, I
-    ;; know no other way to get access to these members, but hopefully the
-    ;; `internal-` prefix will be a clue that people should not call these
-    ;; methods.  Even if they call them, they will get access to data they
-    ;; cannot use to corrupt the state of the object.  Also note that there is
-    ;; no need to copy `tracks` and `markers`, as lists are immutable in
-    ;; Racket.
-    (define/public (internal-get-tracks) tracks)
-    (define/public (internal-get-markers) markers)
-    (define/public (internal-get-group-pens) (hash-copy group-pens))
-    (define/public (internal-get-group-zorder) (hash-copy group-zorder))
-    (define/public (internal-get-origin) (values origin-x origin-y))
-
     ;; Copy the state of OTHER into this object instance.  This is used as a
     ;; helper method for map-snip% which needs to have a COPY method.
     (define/public (copy-from other)
-      ;; Need to copy tracks, track group pens and track zorders
       (set! the-zoom-level (send other zoom-level))
-      (set! the-current-location (send other current-location))
-      (set! should-track-current-location (send other track-current-location))
-      (define-values (ox oy) (send other internal-get-origin))
+      (define-values (ox oy) (send other get-origin))
       (set! origin-x ox)
       (set! origin-y oy)
-      (set! tracks (send other internal-get-tracks))
-      (set! group-pens (send other internal-get-group-pens))
-      (set! group-zorder (send other internal-get-group-zorder))
-      (set! markers (send other internal-get-markers))
+      (set! the-layers
+            (for/list ([l (in-list (send other get-all-layers))])
+              (define c (send l clone))
+              c))
+      (for ([l (in-list the-layers)])
+        (send l set-admin this))
       (limit-origin width height)
       (refresh))
 
@@ -568,6 +243,12 @@
             ((send event button-up? 'left) arrow-cursor)
             (#t #f)))
 
+    (define/public (drag-map dx dy)
+      (set! origin-x (- origin-x dx))
+      (set! origin-y (- origin-y dy))
+      (limit-origin width height)
+      (refresh))
+
     ;; Handle a mouse event.  Return #t if the event was handled, #f
     ;; otherwise.
     (define/public (on-event dc x y editorx editory event)
@@ -585,18 +266,18 @@
              (let ((mouse-x (send event get-x))
                    (mouse-y (send event get-y)))
                (when (and last-mouse-x last-mouse-y)
-                 (set! origin-x (- origin-x (- mouse-x last-mouse-x)))
-                 (set! origin-y (- origin-y (- mouse-y last-mouse-y)))
-                 (limit-origin width height)
-                 (refresh))
+                 (drag-map (- mouse-x last-mouse-x) (- mouse-y last-mouse-y)))
                (set! last-mouse-x mouse-x)
                (set! last-mouse-y mouse-y))
              (set! auto-resize-to-fit? #f)
              ;; Event was handled
              #t)
             (#t
-             ;; Not handled
-             #f)))
+             ;; Else pass it on to any layers that wish to handle mouse
+             ;; events, and return true if they handled the event.
+             ;; Automatically returns #f when no layers handle the event.
+             (for/first ([l (in-list the-mouse-event-layers)])
+               (send l on-mouse-event dc x y editorx editory event)))))
 
     ;; Handle a keyboard event.  Return #t if the event was handled, #f
     ;; otherwise.  Note that the wheel scroll with the mouse is received as
@@ -649,52 +330,16 @@
                   (clear-dc dc x y width height))
               (with-origin dc (- origin-x x) (- origin-y y)
                 (lambda ()
-                  (when point-cloud
-                    (send point-cloud draw dc the-zoom-level))
-
-                  (define sorted-groups
-                    (sort
-                     (remove-duplicates (for/list ([t tracks]) (send t get-group)))
-                     >
-                     #:key (lambda (group)
-                             (hash-ref group-zorder group default-zorder))))
-                  (define brush
-                    (send the-brush-list find-or-create-brush "black" 'transparent))
-                  (for ([group sorted-groups])
-                    (define pen (hash-ref group-pens group default-pen))
-                    (for ([track (in-list tracks)] #:when (equal? (send track get-group) group))
-                      (send track draw dc the-zoom-level pen brush)))
-
-                  (for ([marker markers])
-                    (send marker draw dc the-zoom-level))
-                  ;; Draw the current location marker, as set by
-                  ;; `on-current-location-updated'
-                  (when (and last-current-location-x last-current-location-y)
-                    (send dc set-pen current-location-pen)
-                    (send dc set-brush current-location-brush)
-                    (send dc draw-ellipse
-                          (- last-current-location-x 12)
-                          (- last-current-location-y 12)
-                          24 24))
-
+                  (for ([layer (in-list the-layers)])
+                    (send layer draw dc the-zoom-level))
                   (when debug?
                     (define bbox (get-bounding-box))
                     (when bbox
-                      (send dc set-pen debug-pen)
-                      (send dc set-brush brush)
-                      (draw-bounding-box dc bbox the-zoom-level)))))
-
-              (draw-map-legend dc x y width height the-zoom-level)))))
-
-      ;; Point cloud objects are processed in a separate thread, if there are
-      ;; outstanding points to process, request a redraw.
-      (when (and auto-resize-to-fit? point-cloud)
-        (define-values (c t) (send point-cloud get-point-count))
-        (when (< c t)
-          (send auto-resize-to-fit-timer start 500 #t))))
+                      (draw-bounding-box dc bbox the-zoom-level))))))))))
 
     ;; Return the dimensions of the map
-    (define/public (get-size) (values width height))
+    (define/public (get-size)
+      (values width height))
 
     ;; Timer to schedule a re-paint of the canvas when we have some missing
     ;; tiles -- hopefully the tiles will arrive by the time we get to re-paint
@@ -707,17 +352,16 @@
               (set-box! good-to-refresh? #t)
               (refresh))]))
 
+    ;; Timer to schedule a resize-to-fit event when the bounding box of some
+    ;; of the layers change.  Used by the point-cloud-layer% which supports
+    ;; streaming in points.
     (define auto-resize-to-fit-timer
       (new one-shot-timer%
            [notify-callback
             (lambda ()
-              (when (and point-cloud auto-resize-to-fit?)
+              (when auto-resize-to-fit?
                 (set-box! good-to-refresh? #t)
                 (resize-to-fit)))]))
-
-    ;; Timer to schedule a map drag event to pan the current location in view
-    (define auto-drag-map-timer
-      (new timer% [notify-callback (lambda () (on-current-location-updated))]))
 
     ;; Draw the map tiles on the device context DC at DX, DY.  Note that this
     ;; function does not assume that the map is drawn on the entire device
@@ -792,9 +436,8 @@
              (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
              (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2))))
            (limit-origin width height)
-           (set! last-current-location-x #f)
-           (set! last-current-location-y #f)
-           (on-current-location-updated)
+           (for ([l (in-list the-layers)])
+             (send l on-zoom-level-change zl))
            (refresh)
            (on-zoom-level-change the-zoom-level))]))
 
@@ -807,186 +450,65 @@
            (set! show-map-layer? flag)
            (refresh))]))
 
-    ;; Clear the map of all tracks and markers.
-    (define/public (clear)
-      (set! point-cloud #f)
-      (set! tracks '())
-      (set! markers '())
+    (define/public (on-zorder-changed)
+      (set! the-layers (sort-layers-by-zorder the-layers))
       (refresh))
 
-    ;; Add a GPS track to the map.  TRACK is a sequence of (Vector LAT LON)
-    ;; and GROUP is a group identifier for the track.  Tracks are grouped
-    ;; together using the same GROUP for the purposes of drawning and z-order.
-    ;; Grouping is useful if there are several disjoint tracks in a logical
-    ;; section (e.g. when the user stops recording, moves some distance and
-    ;; starts recording again).
-    (define/public (add-track track group)
-      (define gtrack (new track% [track track] [group group]))
-      (set! tracks (cons gtrack tracks))
-      (when auto-resize-to-fit?
-        (resize-to-fit))
+    (define/public (find-layer-by-name name)
+      (for/first ([layer (in-list the-layers)]
+                  #:when (equal? name (send layer get-name)))
+        layer))
+
+    (define/public (get-all-layers)
+      the-layers)
+
+    (define/public (add-layer layer)
+      ;; Remove any previous layer by that name.
+      ;; TODO: add a #:replace? option and error out if we try to add duplicates?
+      (remove-layer (send layer get-name))
+      (set! the-layers (sort-layers-by-zorder (cons layer the-layers)))
+      (send layer set-admin this)
       (refresh))
 
-    ;; Add a label on the map at a specified position a (Vector LAT LON)
-    (define/public (add-marker pos text direction color)
-      (define gmarker (new marker% [pos pos] [text text]
-                           [direction direction] [color color]))
-      (set! markers (cons gmarker markers))
-      (when auto-resize-to-fit?
-        (resize-to-fit))
-      (refresh))
+    ;; Register a layer to receive mouse events -- such layers will have their
+    ;; on-mouse-event method called on mouse events...
+    (define/public (register-for-mouse-events layer-name)
+      (define l (find-layer-by-name layer-name))
+      (when l
+        (unless (member l the-mouse-event-layers)
+          (set! the-mouse-event-layers (cons l the-mouse-event-layers)))))
 
-    (define/public (set-point-cloud-colors cm)
-      (set! point-cloud-color-map cm)
-      (when point-cloud
-        (send point-cloud set-color-map cm))
-      (refresh))
+    (define/public (unregister-for-mouse-events layer-name)
+      (define l (find-layer-by-name layer-name))
+      (when l
+        (set! the-mouse-event-layers (remove l the-mouse-event-layers))))
 
-    (define/public (add-to-point-cloud points #:format (fmt 'lat-lng))
-      (unless point-cloud
-        (set! point-cloud (new point-cloud%
-                               [color-map point-cloud-color-map]
-                               [refresh-callback (lambda () (refresh))])))
-      (send point-cloud add-points points #:format fmt)
-      (if auto-resize-to-fit?
-          ;; This will also invoke a refresh...
-          (send auto-resize-to-fit-timer start 500 #t)
-          ;; NO point in refreshing immediately as points won't be ready...
-          (send redraw-timer start 500 #t)))
-
-    (define/public (get-point-count)
-      (if point-cloud
-          (send point-cloud get-point-count)
-          (values 0 0)))
-
-    (define/public (clear-point-cloud)
-      (set! point-cloud #f)
-      (refresh))
-
-    ;; Called when the current location has been updated, handles redisplay of
-    ;; the current location as well as auto-dragging the map, if this is
-    ;; enabled.
-    (define/private (on-current-location-updated)
-
-      (send auto-drag-map-timer stop)
-
-      ;; The current location has been cleared, refresh the map
-      (when (and (not the-current-location)
-                 (or last-current-location-x last-current-location-y))
-        (set! last-current-location-x #f)
-        (set! last-current-location-x #f)
-        (refresh))
-
-      (when the-current-location
-        (let* ((point (lat-lon->npoint
-                       (point-lat the-current-location) (point-lon the-current-location)))
-               (px (* max-coord (npoint-x point)))
-               (py (* max-coord (npoint-y point)))
-               (cx (+ origin-x (/ width 2)))
-               (cy (+ origin-y (/ height 2)))
-               (dx (- cx px))
-               (dy (- cy py))
-               (need-refresh? #f))
-          ;; We only need a refresh if the current location moved at least
-          ;; one pixel on the screen.
-          (set! need-refresh?
-                (or (not last-current-location-x)
-                    (not last-current-location-y)
-                    (>= (abs (- last-current-location-x px)) 1.0)
-                    (>= (abs (- last-current-location-y py)) 1.0)))
-          (when need-refresh?
-            (refresh)
-            ;; Only update this if we need to refresh -- otherwise we can
-            ;; creep out in small increments and never notice it!
-            (set! last-current-location-x px)
-            (set! last-current-location-y py))
-
-          (when should-track-current-location
-            (define auto-drag-map
-              (cond
-                ((or (> (abs dx) (/ width 8)) (> (abs dy) (/ height 8))) #t)
-                ((and (< (abs dx) 1) (< (abs dy) 1)) #f)
-                (#t #f)))
-            (when auto-drag-map
-              (set! origin-x (exact-round (- origin-x (* dx 0.1))))
-              (set! origin-y (exact-round (- origin-y (* dy 0.1))))
-              (limit-origin width height)
-              (send auto-drag-map-timer start 100)
-              (refresh))))))
-
-    ;; Get and set the current location of the map
-    (public current-location)
-    (define current-location
-      (case-lambda
-        (() the-current-location)
-        ((pos)
-         (set! the-current-location pos)
-         (on-current-location-updated))))
-
-    ;; Get and set whether to track the current location -- if set, the map
-    ;; will always be panned so that the current location is in the center of
-    ;; the map.
-    (public track-current-location)
-    (define track-current-location
-      (case-lambda
-        (() should-track-current-location)
-        ((flag)
-         (set! should-track-current-location flag)
-         (on-current-location-updated))))
-
-    ;; Set the pen used to draw the specified track GROUP.  If GROUP is #f,
-    ;; all the tracks will use this pen.
-    (define/public (set-group-pen group pen)
-      (if group
-          (hash-set! group-pens group pen)
+    (define/public (remove-layer layer-name)
+      (if layer-name
+          (let ([l (find-layer-by-name layer-name)])
+            (when l
+              (set! the-layers (remove l the-layers))
+              (set! the-mouse-event-layers (remove l the-mouse-event-layers))
+              (send l set-admin #f)))
           (begin
-            ; silly way in which inspect-map uses the widget.
-            (set! group-pens (make-hash))
-            (set! default-pen pen)))
-      (refresh))
-
-    ;; Set the Z-ORDER used to draw a track group.  If GROUP is #f, al the
-    ;; tracks will use this Z-ORDER and the tracks are drawn in the order they
-    ;; were added.  Tracks are drawn back to front, biggest Z-ORDER first.
-    ;; This way, tracks with smaller Z-ORDER will be "on top".
-    (define/public (set-group-zorder group zorder)
-      (if group
-          (hash-set! group-zorder group zorder)
-          (begin
-            ; silly way in which inspect-map uses the widget.
-            (set! group-zorder (make-hash))
-            (set! default-zorder zorder)))
-      (refresh))
-
-    ;; Delete all tracks in GROUP, or delete all tracks if GROUP is #f.
-    (define/public (delete-group group)
-      (define ntracks
-        (for/list ([track tracks]
-                   #:unless (or (not group) (equal? group (send track get-group))))
-          track))
-      (set! tracks ntracks)
+            (for ([l (in-list the-layers)])
+              (send l set-admin #f))
+            (set! the-layers '())
+            (set! the-mouse-event-layers '())))
       (refresh))
 
     ;; Return the bounding box for all tracks in GROUP, or if GROUP is #f for
     ;; all tracks on the map.
     (define/private (get-bounding-box [group #f])
-      (define hm-bb (and point-cloud (send point-cloud get-bounding-box)))
-      (define bb
-        (for/fold ([outer hm-bb])
-                  ([track tracks]
-                   #:when (or (not group) (equal? group (send track get-group))))
-          (let ((bb (send track get-bounding-box)))
-            (if outer (bbox-merge outer bb) bb))))
       (if group
-          bb
-          ;; If no group is specified, include the markers as well
-          (for/fold ([bb bb])
-                    ([marker markers])
-            (if bb
-                (bbox-extend bb (send marker get-position))
-                (let ((pos (send marker get-position)))
-                  (bbox (point-lat pos) (point-lon pos)
-                        (point-lat pos) (point-lon pos)))))))
+          (let ([l (find-layer-by-name group)])
+            (and l (send l get-bounding-box)))
+          (for/fold ([outer #f])
+                    ([layer (in-list the-layers)])
+            (let ([bb (send layer get-bounding-box)])
+              (if (and outer bb)
+                  (bbox-merge outer bb)
+                  (or outer bb))))))
 
     ;; Return the center position for all tracks in GROUP, or the center
     ;; position for all tracks when GROUP is #f
@@ -1075,8 +597,6 @@
           (resize-to-fit))
         (refresh)))
 
-    (when track
-      (add-track track 0))
     (if position (move-to position) (center-map))
 
     ))

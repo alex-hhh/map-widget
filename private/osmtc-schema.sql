@@ -1,6 +1,9 @@
--- Database schema for caching OSM tile data
-
--- This file is part of map-widget
+-- SPDX-License-Identifier: LGPL-3.0-or-later
+-- ostmtc-schema.sql -- database schema for caching OSM tile data
+--
+-- This file is part of map-widget -- A Racket GUI Widget to display maps
+-- based on OpenStreetMap tiles
+--
 -- Copyright (c) 2018 Alex Harsanyi <AlexHarsanyi@gmail.com>
 --
 -- This program is free software: you can redistribute it and/or modify it
@@ -26,7 +29,7 @@ create table TILE_CACHE (
   timestamp integer not null, -- unix timestamp when the tile was retrieved
   url text not null,          -- URL from which tile was retrieved
   data blob not null);
-  
+
 create unique index IX0_TILE_CACHE on TILE_CACHE(zoom_level, x_coord, y_coord);
 
 -- Local Variables:

@@ -1,8 +1,10 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; point-cloud-tests.rkt -- tests for the point-cloud file
 ;;
-;; This file is part of map-widget -- A Racket GUI Widget to display maps based on OpenStreetMap tiles
+;; This file is part of map-widget -- A Racket GUI Widget to display maps
+;; based on OpenStreetMap tiles
+;;
 ;; Copyright (c) 2020 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it

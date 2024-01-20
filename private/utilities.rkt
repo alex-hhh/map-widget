@@ -1,5 +1,5 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; This file is part of map-widget
 ;; Copyright (c) 2018 Alex Harsanyi <AlexHarsanyi@gmail.com>
 
@@ -19,8 +19,7 @@
 (require racket/contract
          racket/port
          errortrace/errortrace-lib      ; for print-error-trace
-         racket/file
-         )
+         racket/file)
 
 (provide/contract
  (log-exception (-> string? exn? any/c))

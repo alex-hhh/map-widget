@@ -1,7 +1,8 @@
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; main.rkt -- main file for the map-widget package, exports the widgets
 ;;
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps based on OpenStreetMap tiles
-;; Copyright (c) 2020 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2020, 2023 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -18,14 +19,12 @@
 
 #lang racket/base
 
-(module+ test
-  (require rackunit))
-
 (require "private/map-widget.rkt"
          "private/map-snip.rkt"
          "private/utilities.rkt"
          "private/map-util.rkt"
-         "private/map-tiles.rkt")
+         "private/tiles.rkt"
+         "private/layers.rkt")
 
 (provide map-widget%
          map-snip%
@@ -38,7 +37,21 @@
          allow-tile-download
          set-allow-tile-download
          vacuum-tile-cache-database
-         shutdown-map-tile-workers)
+         shutdown-map-tile-workers
+
+         layer<%>
+         lines-layer%
+         markers-layer%
+         points-layer%
+         point-cloud-layer%
+         current-location-layer%
+
+         lines-layer
+         line-layer
+         points-layer
+         markers-layer
+         point-cloud-layer
+         current-location-layer)
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -65,13 +78,3 @@
 ;;
 ;; See the current version of the racket style guide here:
 ;; http://docs.racket-lang.org/style/index.html
-
-;; Code here
-
-(module+ test
-  ;; Tests to be run with raco test
-  )
-
-(module+ main
-  ;; Main entry point, executed when run with the `racket` executable or DrRacket.
-  )

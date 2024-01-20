@@ -1,4 +1,5 @@
 #lang racket/base
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; dbutil.rkt -- utilities to open and create databases based on schema files.
 
 ;; This file is part of map-widget
@@ -40,26 +41,26 @@
 (define (read-next-statement input-port)
   (let ((out (open-output-string))
         (in-string? #f))
-    
+
     ;; Return the next character in the input stream PORT, collapsing all
     ;; whitespace to a single space and skipping all comments.  Comments start
     ;; with "--" and extend until the end of the line.  Strings are being
     ;; tracked for.
     (define (get-next-char)
       (let ((ch (read-char input-port)))
-        
+
         (when (eqv? ch #\')
           (set! in-string? (not in-string?)))
-        
+
         (cond ((eqv? ch eof) ch)
-              
+
               ((and (char-whitespace? ch)
                     (let ((ch-next (peek-char input-port)))
                       (or (eqv? ch-next eof)
                           (char-whitespace? ch-next))))
                ;; Colapse all whitespace into one single space
                (get-next-char))
-              
+
               ((and (not in-string?)
                     (eqv? ch #\-)
                     (eqv? (peek-char input-port) #\-))
@@ -67,10 +68,10 @@
                (for ((v (in-producer (lambda () (read-char input-port)) #\newline)))
                  (begin #f))
                #\ )
-              
+
               ((char-whitespace? ch) #\ ) ; all whitespace converted to space
               (#t ch))))
-    
+
     ;; read from the input stream using GET-NEXT-CHAR until a semi-colon (#\;)
     ;; is seen.  Intermediate read chars are written to OUT.  The full
     ;; statement is returned, or #f on EOF.
@@ -83,7 +84,7 @@
               (#t
                (write-char ch out)
                (loop)))))
-       
+
     (loop)))
 
 ;; Read SQL statements from INPUT-PORT, and return them as a list
@@ -159,4 +160,3 @@
           (disconnect db)
           (raise (db-exn-bad-version database-file expected-version actual-version)))))
     db))
-

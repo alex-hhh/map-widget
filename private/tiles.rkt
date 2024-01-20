@@ -1,5 +1,5 @@
 #lang racket/base
-
+;; SPDX-License-Identifier: LGPL-3.0-or-later
 ;; map-tiles.rkt -- manage map tiles for the map widget.  Tiles are retrieved
 ;; from the net as needed and stored locally in a cache.
 

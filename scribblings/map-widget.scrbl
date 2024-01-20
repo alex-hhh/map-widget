@@ -1,6 +1,7 @@
 #lang scribble/manual
 @require[@for-label[map-widget
                     geoid
+                    pict
                     racket/class
                     racket/base
                     racket/draw
@@ -11,45 +12,15 @@
 
 This module contains a widget to display a map based on OpenStreetMap data,
 plus additional markers and GPS tracks.  The widget allows zooming and paning
-with the mouse, as well as programatically.  Two interfaces are available,
-@racket[map-widget%] is based on a @racket[canvas%] implementation and can be
+with the mouse, as well as programatically.  Two interfaces are available:
+@racket[map-widget%] is based on a @racket[canvas%] implementation, and can be
 added to other GUI elements, while @racket[map-snip%] implements the map as a
 @racket[snip%] object which can be inserted into a @racket[pasteboard%].
 
-There is a tutorial on how to use this widget, it is available
-@hyperlink["https://alex-hhh.github.io/2018/06/a-racket-gui-widget-to-display-maps-based-on-openstreetmap-tiles.html"]{here}.
-
-@section{Map Widget Concepts}
-
-@subsection{Tile Servers}
-
-The map widget displays a map as a collection of tiles, each tile is a square
-bitmap 256 pixels in width and height.  These tiles are downloaded from tile
-servers as needed and they are stored locally in a persistent cache on disk.
-The Open Street Map tile server is always available, and it is used by the map
-widget by default.  In addition tiles from the
-@hyperlink["http://thunderforest.com/"]{Thunderforest} service can also be
-used, but this requires an API key to be set.  If you have an API key, and you
-can get a developer one for free, set the @tt{AL2TFAPIKEY} environment
-variable to contain the API key.  The API key is compiled into the code and
-the environment variable is not needed if you distribute a built application
-using the map widget.
-
-You can set the tile provider to use by calling
-@racket[set-current-tile-provider] and you can get a list of available tile
-providers by calling @racket[get-tile-provider-names].
-
-@subsection{GPS Tracks and Groups}
-
-The map widget can overlay GPS tracks onto the map.  These are sequences of
-GPS points, which represent a continuous track: the map widget will draw aa
-single line connecting all the points.  Multiple tracks can be added to the
-map and all would be drawn independently.
-
-GPS tracks can form groups.  A group is a number of symbol which is specified
-to @racket[add-track] method.  Groups are useful because the map widget allows
-specifying how the track is drawn (the @racket[pen%]) as well as the Z-order
-at group level.  A group can be used to draw a GPS track that is discontinous.
+The package was initially written to support the data visualisation needs for
+@hyperlink["https://github.com/alex-hhh/ActivityLog2"]{ActivityLog2}. That
+application uses all the features implemented by this package, and shows many
+complex usage scenarios of the map widget.
 
 @section{Map Widget Reference}
 
@@ -90,121 +61,6 @@ A widget to display map plus GPS tracks and markers.
 
 }
 
-@defmethod[(clear) any/c]{
-  Remove all overlay items (tracks and markers) from the widget
-}
-
-@defmethod[(add-track (track sequence?) (group (or/c symbol? integer? #f))) any/c]{
-
-  Add a new GPS track to the map.  The GPS track is a sequence of points, each
-  point is a vector of at least two elements: the latitude and longitude of
-  the point.
-
-  A track can be addded to a group, which is a symbol used to identify related
-  tracks.  The @racket[pen%] and z-order can be specified for a group.
-
-}
-
-@defmethod[(add-marker (position (vector/c flonum? flonum?))
-                       (name string?)
-                       (direction (or/c -1 1))
-                        (color (is-a?/c color%))) any/c]{
-
-  Add a marker to the map at the specified position.  "name" will be used for
-  the label.
-
-}
-
-@defmethod[(current-location (location (or/c (vector/c flonum? flonum?) #f))) any/c]{
-
-  Display a cicle marker at the specified GPS point.  The marker can be moved
-  around by calling this method with a new position or it can be cleared by
-  specifying @racket[#f] as the location.
-
-}
-
-@defmethod[(track-current-location (flag boolean?)) any/c]{
-
-  If flag is @racket[#t], the map will be automatically panned so that the
-  location speficied by @racket[set-current-location] is always in the middle
-  of the map, when flag is @racket[#f], this functionality is disabled
-
-}
-
-@defmethod[(set-group-pen (group (or/c #f integer? symbol?)) (pen (is-a?/c pen%))) any/c]{
-
-  Set the pen used to draw tracks in the specified track group.  When the
-  track group is @racket[#f], the default pen is updated, this is used for
-  tracks that have no group defined (i.e. the group is @racket[#f])
-
-}
-
-@defmethod[(set-group-zorder (group (or/c #f integer? symbol?)) (zorder positive?)) any/c]{
-
-  Set the order in which tracks in the specified trackgroup will be drawn.
-  Tracks with a smaller Z-order will be drawn before tracks with a larger
-  Z-order. The draw order for tracks with the same Z-order value is
-  unspecified.
-
-}
-
-@defmethod[(delete-group (group (or/c #f integer? symbol?))) any/c]{
-
-  Delete all GPS tracks within the specified group
-
-}
-
-@defmethod[(set-point-could-colors (cm (listof? (or/c (list real? real? real?)
-                                                      string?
-                                                      (is-a?/c color%))))) any/c]{
-
-  Set the color map used for rendering point clouds, the color map is a list
-  of colors, the first will be used for the least amount of points in a
-  location, while the last color for coloring locations with most points.
-  In-between colors will be used for locations of intermediate number of
-  points.
-
-}
-
-@defmethod[(add-to-point-cloud (points (or/c (listof? integer?)
-                                             (listof? (list/c real? real?))
-                                             (listof? (vector/c real? real?))))
-                    (#:format fmt (or/c 'lat-lng 'geoids 'ordered-geoids))) any/c]{
-
-  Add some GPS points to the point cloud.  The points can be specified either
-  as latitude/longitude pairs or as geoids (ordered or not).
-
-  @racket[fmt] specifies the format of input data: @racket['lat-lng] means the
-  data is a sequence of latitude/longitude pairs, @racket['geoids] means the
-  data is a list of geoids (possibly unordered), while
-  @racket['ordered-geoids] specifies that the data is an ordered list of
-  geoids.
-
-  For large amonts of data, ordered geoids are the fastest to process, but it
-  is only worthwhile using it if the data is already ordered (e.g stored as
-  such in a database).  If you only have latitude/longitude pairs, converting
-  them to geoids and sorting them will not make it faster.
-
-  For mode information on geoids, see the @other-manual['geoid] package.
-
-}
-
-@defmethod[(get-point-count) (values integer? integer?)]{
-
-  Return the number of points in the point cloud as two values: the number of
-  points that have been processed and available for drawing, and the total
-  number of points that were added to the point cloud, this last value
-  includes points that are not yet processed, since point processing happens
-  in a separate OS thread (place).
-
-}
-
-@defmethod[(clear-point-cloud) any/c]{
-
-  Clear all the points in the point cloud.
-
-}
-
 @defmethod[(center-map (group (or/c #f integer? symbol?))) any/c]{
 
   Center the map around the specified track group, or around all tracks if
@@ -236,6 +92,26 @@ A widget to display map plus GPS tracks and markers.
 
   The flag will be automatically cleared when the user moves the map or zooms
   it.
+
+}
+
+@defmethod*[([(begin-edit-sequence) any/c]
+            [(end-edit-sequence) any/c])]{
+
+  These two methods can be used to group together several operations on the
+  map widget, avoiding intermediate refresh calls which might cause
+  flickering.
+
+  The @racket[begin-edit-sequence] and @racket[end-edit-sequence] calls can be
+  nested.
+
+}
+
+@defmethod*[([(add-layer (layer (is-a/c layer<%>))) any/c]
+            [(remove-layer (layer-name (or/c symbol? integer?))) any/c])]{
+
+  Add or remove a layer from the map, layers contain tracks (lists of
+  waypoints), individual points, named locations or point clouds.
 
 }
 
@@ -282,111 +158,6 @@ inserted in a @racket[pasteboard%].
 
 }
 
-@defmethod[(clear) any/c]{
-  Remove all overlay items (tracks and markers) from the widget
-}
-
-@defmethod[(add-track (track sequence?) (group (or/c symbol? integer? #f))) any/c]{
-
-  Add a new GPS track to the map.  The GPS track is a sequence of points, each
-  point is a vector of at least two elements: the latitude and longitude of
-  the point.
-
-  A track can be addded to a group, which is a symbol used to identify related
-  tracks.  The @racket[pen%] and z-order can be specified for a group.
-
-}
-
-@defmethod[(add-marker (position (vector/c flonum? flonum?))
-                       (name string?)
-                       (direction (or/c -1 1))
-                        (color (is-a?/c color%))) any/c]{
-
-  Add a marker to the map at the specified position.  "name" will be used for
-  the label.
-
-}
-
-@defmethod[(current-location (location (or/c (vector/c flonum? flonum?) #f))) any/c]{
-
-  Display a cicle marker at the specified GPS point.  The marker can be moved
-  around by calling this method with a new position or it can be cleared by
-  specifying @racket[#f] as the location.
-
-}
-
-@defmethod[(track-current-location (flag boolean?)) any/c]{
-
-  If flag is @racket[#t], the map will be automatically panned so that the
-  location speficied by @racket[set-current-location] is always in the middle
-  of the map, when flag is @racket[#f], this functionality is disabled
-
-}
-
-@defmethod[(set-group-pen (group (or/c #f integer? symbol?)) (pen (is-a?/c pen%))) any/c]{
-
-  Set the pen used to draw tracks in the specified track group.  When the
-  track group is @racket[#f], the default pen is updated, this is used for
-  tracks that have no group defined (i.e. the group is @racket[#f])
-
-}
-
-@defmethod[(set-group-zorder (group (or/c #f integer? symbol?)) (zorder positive?)) any/c]{
-
-  Set the order in which tracks in the specified trackgroup will be drawn.
-  Tracks with a smaller Z-order will be drawn before tracks with a larger
-  Z-order. The draw order for tracks with the same Z-order value is
-  unspecified.
-
-}
-
-@defmethod[(delete-group (group (or/c #f integer? symbol?))) any/c]{
-
-  Delete all GPS tracks within the specified group
-
-}
-
-@defmethod[(set-point-could-colors (cm (listof? (or/c (list real? real? real?)
-                                                      string?
-                                                      (is-a?/c color%))))) any/c]{
-
-  Set the color map used for rendering point clouds, the color map is a list
-  of colors, the first will be used for the least amount of points in a
-  location, while the last color for coloring locations with most points.
-  In-between colors will be used for locations of intermediate number of
-  points.
-
-}
-
-@defmethod[(add-to-point-cloud (points (or/c (listof? integer?)
-                                             (listof? (list/c real? real?))
-                                             (listof? (vector/c real? real?))))
-                    (#:format fmt (or/c 'lat-lng 'geoids 'ordered-geoids))) any/c]{
-
-  Add some GPS points to the point cloud.  The points can be specified either
-  as latitude/longitude pairs or as geoids (ordered or not).
-
-  @racket[fmt] specifies the format of input data: @racket['lat-lng] means the
-  data is a sequence of latitude/longitude pairs, @racket['geoids] means the
-  data is a list of geoids (possibly unordered), while
-  @racket['ordered-geoids] specifies that the data is an ordered list of
-  geoids.
-
-  For large amonts of data, ordered geoids are the fastest to process, but it
-  is only worthwhile using it if the data is already ordered (e.g stored as
-  such in a database).  If you only have latitude/longitude pairs, converting
-  them to geoids and sorting them will not make it faster.
-
-  For mode information on geoids, see the @other-manual['geoid] package.
-
-}
-
-@defmethod[(clear-point-cloud) any/c]{
-
-  Clear all the points in the point cloud.
-
-}
-
 @defmethod[(center-map (group (or/c #f integer? symbol?))) any/c]{
 
   Center the map around the specified track group, or around all tracks if
@@ -422,9 +193,278 @@ inserted in a @racket[pasteboard%].
 
 }
 
+@defmethod*[([(begin-edit-sequence) any/c]
+            [(end-edit-sequence) any/c])]{
+
+  These two methods can be used to group together several operations on the
+  map widget, avoiding intermediate refresh calls which might cause
+  flickering.
+
+  The @racket[begin-edit-sequence] and @racket[end-edit-sequence] calls can be
+  nested.
 
 }
 
+@defmethod*[([(add-layer (layer (is-a/c layer<%>))) any/c]
+            [(remove-layer (layer-name (or/c symbol? integer?))) any/c])]{
+
+  Add or remove a layer from the map, layers contain tracks (lists of
+  waypoints), individual points, named locations or point clouds.
+
+}
+
+}
+
+@subsection{Layers}
+
+@definterface[layer<%> ()]{
+
+  Common interface provided by all map layers, layers are used to show lines,
+  points, markers and point-clouds on the map.
+
+  @defmethod[(get-name) (or/c symbol? string?)]{
+
+    Return the name of this layer.
+
+  }
+
+  @defmethod*[([(get-zorder) (between/c 0 1)]
+              [(set-zorder (zorder (between/c 0 1))) any/c])]{
+
+    Set or get the drawing order of this layer.  Layers with lower
+    @italic{z-order} values are drawn earlier, and this are "below" layers
+    with higher @italic{z-order} values.
+
+  }
+
+}
+
+@defclass[lines-layer% object% (layer<%>)]{
+
+  A map layer that draws a sequence of waypoints as lines.  Use
+  @racket[lines-layer] and @racket[line-layer] to create line layers.
+
+  @defmethod[(set-pen (p (is-a/c pen%))) any/c]{
+
+    Set the pen used to draw lines in this layer.
+
+  }
+
+}
+
+@defproc[(line-layer (name (or/c symbol? integer?))
+                     (waypoints (sequence/c (vector/c real? real?)))
+                     (#:pen pen (is-a/c pen%) 'default-line-pen)
+                     (#:zorder zorder (between/c 0 1) 0.2))
+         (is-a/c lines-layer%)]{
+
+  Creates a @racket[lines-layer%] object named @racket[name] from
+  @racket[waypoints] which is a sequence of latitude and longitude
+  coordinates.
+
+}
+
+@defproc[(lines-layer (name (or/c symbol? integer?))
+                      (tracks (listof (sequence/c (vector/c real? real?))))
+                      (#:pen pen (is-a/c pen%) 'default-line-pen)
+                      (#:zorder zorder (between/c 0 1) 0.5))
+         (is-a/c lines-layer%)]{
+
+  Same as @racket[line-layer], but the layer each waypoint sequence in
+  @racket[tracks] will be drawn as a separate line.  This can be used to
+  create a single layer containing several and possibly disconnected lines.
+
+}
+
+
+@defclass[markers-layer% object% (layer<%>)]{
+
+  A layer that can be used to display one or more labeled markers on the map.
+  Use @racket[markers-layer] to create marker layers.
+
+}
+
+@defproc[(markers-layer (name (or/c symbol? integer?))
+                        (markers (listof (list/c (vector/c real? real?)
+                                                 string?
+                                                 (or/c -1 1)
+                                                 (or/c string? (is-a/c color%)))))
+                        (#:zorder zorder (between/c 0 1) 0.5))
+         (is-a/c markers-layer%)]{
+
+  Create a @racket[markers-layer%] named @racket[name] from the list of
+  @racket[markers].  Each marker is specified by a list of 4 elements: a
+  latitude/longitude coordinate, the label to be shown on the map, the
+  location of the label -1 to the left, 1 to the right and a color, specified
+  either as a color name or a @racket[color%] object.
+
+}
+
+@defclass[points-layer% object% (layer<%>)]{
+
+  Create a map layer which draws individual points.  Individual points can be
+  highlighted when the user moves the mouse over them and a tooltip,
+  represented as a @racket[pict] can be displayed for each point.  Use
+  @racket[points-layer] to create a points layer.
+
+}
+
+
+@defproc[(points-layer (name (or/c symbol? integer?))
+                       (points (lisfof (vector/c real? real?)))
+                       (#:zorder zorder (between/c 0 1) 0.3)
+                       (#:pen pen (is-a/c pen%) 'default-points-pen)
+                       (#:brush brush (is-a/c brush%) 'default-points-brush)
+                       (#:size size (>/c 0) 10)
+                       (#:hlpen hlpen (is-a/c pen%) 'default-points-hlpen)
+                       (#:hlbrush hlbrush (is-a/c brush%) 'default-points-hlbrush)
+                       (#:hlsize hlsize (>/c 0) 15)
+                       (#:hover-callback hover-callback (-> exact-nonnegative-integer? (or/c #f pict?)) 'default-hover-callback))
+         (is-a/c points-layer%)]{
+
+  Create a a @racket[points-layer%] named @racket[name] from a list of
+  @racket[points] which are latitude/longitude positions.
+
+  Each point is drawn asa a disk (circle) using @racket[pen] and
+  @racket[brush] and it is of the specified @racket[size].  When the user
+  moves the mouse over a point, it is highlighted, that is, drawn using
+  @racket[hlpen] and @racket[hlbrush] and @racket[hlsize].
+
+  @racket[hover-callback] represends an optional callback, whcih is invoked
+  with the index of the point that is highlighted.  It can return either
+  @racket[#f], in which case nothing is displayed, or a @racket[pict] object
+  which is displayed next to the point -- this can be used to display
+  additional information about the point.  The default callback always returns
+  @racket[#f].
+
+}
+
+@defclass[point-cloud-layer% object% (layer<%>)]{
+
+  A point-cloud layer shows a large amount (millions) of points on a map,
+  grouped together and colored using a color map to show density of data
+  around a location.
+
+  @defmethod[(get-point-count) (values integer? integer?)]{
+
+    Return the number of points in the point cloud as two values: the number
+    of points that have been processed and available for drawing, and the
+    total number of points that were added to the point cloud, this last value
+    includes points that are not yet processed, since point processing happens
+    in a separate OS thread (place).
+
+  }
+
+  @defmethod[(clear) any/c]{
+
+    Clear all the points in the point cloud.
+
+  }
+
+  @defmethod[(add-points (points (or/c (listof? integer?)
+                                       (listof? (list/c real? real?))
+                                       (listof? (vector/c real? real?))))
+            (#:format fmt (or/c 'lat-lng 'geoids 'ordered-geoids))) any/c]{
+
+    Add some GPS points to the point cloud.  The points can be specified
+    either as latitude/longitude pairs or as geoids (ordered or not).  This
+    method can be called multiple times, allowing for streaminh in data
+    points.
+
+    @racket[fmt] specifies the format of input data: @racket['lat-lng] means
+    the data is a sequence of latitude/longitude pairs, @racket['geoids] means
+    the data is a list of geoids (possibly unordered), while
+    @racket['ordered-geoids] specifies that the data is an ordered list of
+    geoids.
+
+    For large amonts of data, ordered geoids are the fastest to process, but
+    it is only worthwhile using it if the data is already ordered (e.g stored
+    as such in a database).  If you only have latitude/longitude pairs,
+    converting them to geoids and sorting them will not make it faster.
+
+    For mode information on geoids, see the @other-manual['geoid] package.
+
+  }
+
+  @defmethod[(set-color-map (cm (listof? (or/c (list real? real? real?)
+                                               string?
+                                               (is-a?/c color%)))))
+             any/c]{
+
+    Set the color map used for rendering point clouds, the color map is a list
+    of colors, the first will be used for the least amount of points in a
+    location, while the last color for coloring locations with most points.
+    In-between colors will be used for locations of intermediate number of
+    points.
+
+  }
+}
+
+@defproc[(point-cloud-layer (name (or/c symbol? integer?))
+                            (#:zorder zorder (between/c 0 1) 0.4)
+                            (#:color-map color-map (or/c #f (listof (list/c real? real? real?))) #f))
+         (is-a/c point-cloud-layer%)]{
+
+  Create a new point cloud layer with a default color map.
+
+}
+
+@defclass[current-location-layer% object% (layer<%>)]{
+
+  A map layer that displays a single location on the map, marked by a circle.
+  The location can be updated by the user, and can be used to represent a way
+  to associate some other data with a location on the map.  For example, an
+  application might show an elevation plot and, when the user hovers over the
+  plot, the location over the plot is shown on the map using this layer type.
+
+  @defmethod[(current-location (location (or/c (vector/c real? real?) #f))) any/c]{
+
+    Set the location to be shown on the map, or clears it @racket[#f] is used
+    as the location.
+
+  }
+
+  @defmethod[(track-current-location (flag boolean?)) any/c]{
+
+    If flag is @racket[#t], the map will be automatically panned so that the
+    location speficied by @racket[set-current-location] is always in the
+    middle of the map, when flag is @racket[#f], this functionality is
+    disabled
+
+  }
+
+}
+
+@defproc[(current-location-layer (name (or/c symbol? string))
+                                 (#:track-current-location? track-current-location? boolean? #f)
+                                 (#:zorder zorder (between/c 0 1) 0.6)
+                                 (#:pen pen (is-a/c pen%) 'default-current-location-pen)
+                                 (#:brush brush (is-a/c brush%) 'default-current-location-brush)
+                                 (#:size size (>/c 0) 24))
+         (is-a/c current-location-layer%)]{
+
+  Create a new @racket[current-location-layer%] with the specified
+  @racket[name] and drawing parameters.
+
+  }
+
+@subsection{Tile Providers}
+
+The map widget displays a map as a collection of tiles, each tile is a square
+bitmap 256 pixels in width and height.  These tiles are downloaded from tile
+servers as needed and they are stored locally in a persistent cache on disk.
+The Open Street Map tile server is always available, and it is used by the map
+widget by default.  In addition tiles from the
+@hyperlink["http://thunderforest.com/"]{Thunderforest} service can also be
+used, but this requires an API key to be set.  If you have an API key, and you
+can get a developer one for free, set the @tt{AL2TFAPIKEY} environment
+variable to contain the API key.  The API key is compiled into the code and
+the environment variable is not needed if you distribute a built application
+using the map widget.
+
+You can set the tile provider to use by calling
+@racket[set-current-tile-provider] and you can get a list of available tile
+providers by calling @racket[get-tile-provider-names].
 
 @defproc[(get-tile-providers) (listof string?)]{
 
@@ -439,7 +479,7 @@ inserted in a @racket[pasteboard%].
 
 @defproc[(current-tile-provider) string?]{
 
-  Return the name of the current tile provider
+  Return the name of the current tile provider.
 
 }
 
@@ -451,6 +491,6 @@ inserted in a @racket[pasteboard%].
   When this function is called, the selected tile provider is also stored int
   the racket preference file and this tile provider will be used each time the
   application is run, util this function is called with a different tile
-  provider name
+  provider name.
 
 }

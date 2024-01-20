@@ -4,6 +4,7 @@
          (require-final-newline    . t)
          (show-trailing-whitespace . t)
          (ah-project-headline . "map-widget -- A Racket GUI Widget to display maps based on OpenStreetMap tiles")
+         (ah-spdx-license . "LGPL-3.0-or-later")
          (ah-project-license . lgpl)))
  (yaml-mode . ((mode . goto-address)
                (mode . bug-reference)))
