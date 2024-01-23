@@ -12,7 +12,8 @@
                "base"
                "http-easy"
                "geoid"
-               "rackunit-lib"))
+               "rackunit-lib"
+               "pict-lib"))
 (define build-deps '("scribble-lib"
                      "draw-doc"
                      "gui-doc"

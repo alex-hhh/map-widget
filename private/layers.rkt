@@ -5,7 +5,7 @@
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps
 ;; based on OpenStreetMap tiles
 ;;
-;; Copyright (c) 2019, 2024, 2023 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2019, 2024, 2023, 2024 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -209,7 +209,7 @@
 (define (default-lines-pen)
   (send the-pen-list find-or-create-pen (make-object color% 226 34 62) 3 'solid 'round 'round))
 (define (default-lines-zorder)
-  0.2)
+  0.8)
 
 ;; A layer that draws a collection of lines, a list of LAT/LON waypoints or
 ;; GPS tracks
@@ -369,7 +369,7 @@
     ))
 
 (define (default-markers-zorder)
-  0.5)
+  0.7)
 
 ;; A layer that draws a collection of markers on the map
 (define markers-layer%
@@ -456,7 +456,7 @@
 (define (default-points-hlbrush)
   (send the-brush-list find-or-create-brush (make-object color% 238 51 119) 'solid))
 (define (default-points-zorder)
-  0.3)
+  0.6)
 (define (default-points-size)
   10)
 (define (default-points-hlsize)
@@ -636,7 +636,7 @@
 ;;................................................... point-cloud-layer% ....
 
 (define (default-point-cloud-zorder)
-  0.4)
+  0.9)
 
 ;; A point-cloud layer shows a large amount (millions) of points on a map,
 ;; grouped together and colored using a color map to show density of data
@@ -719,7 +719,7 @@
 ;;.............................................. current-location-layer% ....
 
 (define (default-current-location-zorder)
-  0.6)
+  0.2)
 (define (default-current-location-pen)
   (send the-pen-list find-or-create-pen (make-color 68 114 196) 5 'solid))
 (define (default-current-location-brush)
