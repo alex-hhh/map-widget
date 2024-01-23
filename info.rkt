@@ -18,5 +18,6 @@
                      "draw-doc"
                      "gui-doc"
                      "racket-doc"
+                     "pict-doc"
                      "al2-test-runner"))
 (define scribblings '(("scribblings/map-widget.scrbl" ())))
