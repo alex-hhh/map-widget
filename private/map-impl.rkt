@@ -26,6 +26,7 @@
  racket/class
  racket/gui/base
  racket/match
+ pict
  "utilities.rkt"          ; for get-pref
  "map-util.rkt"
  "tiles.rkt"
@@ -276,7 +277,7 @@
              ;; Else pass it on to any layers that wish to handle mouse
              ;; events, and return true if they handled the event.
              ;; Automatically returns #f when no layers handle the event.
-             (for/first ([l (in-list the-mouse-event-layers)])
+             (for/or ([l (in-list the-mouse-event-layers)])
                (send l on-mouse-event dc x y editorx editory event)))))
 
     ;; Handle a keyboard event.  Return #t if the event was handled, #f
@@ -316,11 +317,14 @@
         (send dc set-pen old-pen)
         (send dc set-brush old-brush)))
 
+    (define tooltip #f)
+
     ;; Draw the map on the device context DC at position X, Y.  The width and
     ;; height of the map is stored in this object.  Note that the code must
     ;; not assume that the entire device context is covered by the map.
     (define/public (draw dc x y)
       (set-box! good-to-refresh? #t)
+      (set! tooltip #f)
       (with-draw-context dc
         (lambda ()
           (with-clipping-rect dc x y width height
@@ -335,11 +339,33 @@
                   (when debug?
                     (define bbox (get-bounding-box))
                     (when bbox
-                      (draw-bounding-box dc bbox the-zoom-level))))))))))
+                      (draw-bounding-box dc bbox the-zoom-level)))
+                  (when tooltip
+                    (match-define (list p x y offset) tooltip)
+                    (define-values (sx sy) (values (- x origin-x) (- y origin-y)))
+                    (define-values (pw ph) (values (pict-width p) (pict-height p)))
+                    ;; Place the tooltip around the mouse location such that it shows on
+                    ;; the screen.
+                    (cond ((and (< (+ sx pw) width)
+                                (< (+ sy ph) height))
+                           (draw-pict p dc (+ x offset) (+ y offset)))
+                          ((< (+ sx pw) width)
+                           (draw-pict p dc (+ x offset) (- y offset ph)))
+                          ((< (+ sy ph) height)
+                           (draw-pict p dc (- x offset pw) (+ y offset)))
+                          (else
+                           (draw-pict p dc (- x offset pw) (- y offset ph))))
+                    (set! tooltip #f)   ; good for one use only
 
-    ;; Return the dimensions of the map
+                    ))))))))
+
+
+    ;; return the dimensions of the map
     (define/public (get-size)
       (values width height))
+
+    (define/public (show-tooltip pict x y offset)
+      (set! tooltip (list pict x y offset)))
 
     ;; Timer to schedule a re-paint of the canvas when we have some missing
     ;; tiles -- hopefully the tiles will arrive by the time we get to re-paint

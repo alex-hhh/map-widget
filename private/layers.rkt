@@ -588,23 +588,7 @@
         (send dc draw-ellipse (- cpx hloffset) (- cpy hloffset) hlsize hlsize)
         (define p (hover-callback closest-point-index))
         (when p
-          (define-values (ox oy) (send dc get-origin))
-          (define-values (w h) (send (get-admin) get-size))
-          ;; screen coordinates of picture
-          (define-values (sx sy) (values (+ cpx ox) (+ cpy oy)))
-          (define-values (pw ph) (values (pict-width p) (pict-height p)))
-
-          ;; Place the tooltip around the mouse location such that it shows on
-          ;; the screen.
-          (cond ((and (< (+ sx pw) w)
-                      (< (+ sy ph) h))
-                 (draw-pict p dc (+ cpx hlsize) (+ cpy hlsize)))
-                ((< (+ sx pw) w)
-                 (draw-pict p dc (+ cpx hlsize ) (- cpy hlsize ph)))
-                ((< (+ sy ph) h)
-                 (draw-pict p dc (- cpx hlsize pw) (+ cpy hlsize)))
-                (else
-                 (draw-pict p dc (- cpx hlsize pw) (- cpy hlsize ph)))))))
+          (send (get-admin) show-tooltip p cpx cpy hlsize))))
 
     (define/public (get-bounding-box)
       the-bbox)
