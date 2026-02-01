@@ -5,7 +5,7 @@
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps
 ;; based on OpenStreetMap tiles
 ;;
-;; Copyright (c) 2019, 2024, 2023, 2024 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2019, 2024, 2023, 2024, 2026 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -443,6 +443,51 @@
        [name name]
        [zorder zorder]
        [markers markers]))
+
+
+;;..................................................... User Click Layer ....
+
+(define user-click-layer%
+  (class* layer% (layer<%>)
+    (init-field [on-click (lambda (lat lon) (void))])
+    (super-new)
+    (inherit get-admin get-name)
+
+    (define/override (set-admin a)
+      (super set-admin a)
+      (when a
+        (send a register-for-mouse-events (send this get-name))))
+
+    (define/public (clone)
+      (new user-click-layer% [name (get-name)] [on-click on-click]))
+
+    (define/public (draw dc zoom-level)
+      (void))
+
+    (define/public (get-bounding-box)
+      #f)
+
+    (define/override (on-mouse-event _dc x y _editorx _editory event)
+      ;; Return #f by default to indicate that we didn't handle the event.
+      (if (eq? (send event get-event-type) 'left-up)
+          (let ([a (get-admin)])
+            (if a
+                (let-values ([(ox oy) (send a get-origin)])
+                  (define mx (+ (- (send event get-x) x) ox))
+                  (define my (+ (- (send event get-y) y) oy))
+                  (define max-coord (* tile-size (expt 2 (send a zoom-level))))
+                  (define-values (lat lon) (npoint->lat-lon (npoint (/ mx max-coord) (/ my max-coord))))
+                  (on-click lat lon)
+                  #t)                   ; handled
+                #f))                    ; not handled
+          #f))                          ; not handled
+
+    ))
+
+(define (user-click-layer name on-click)
+  (new user-click-layer%
+       [name name]
+       [on-click on-click]))
 
 
 ;;........................................................ points-layer% ....
@@ -1027,7 +1072,8 @@
  points-layer%
  point-cloud-layer%
  current-location-layer%
- map-legend-layer%)
+ map-legend-layer%
+ user-click-layer%)
 
 (provide/contract
  (line-layer
@@ -1077,4 +1123,7 @@
         #:zorder (between/c 0 1)
         #:pen (is-a?/c pen%)
         #:brush (is-a?/c brush%))
-       (is-a?/c current-location-layer%))))
+       (is-a?/c current-location-layer%)))
+
+ (user-click-layer
+  (-> (or/c symbol? integer?) (-> number? number? any/c) (is-a?/c user-click-layer%))))

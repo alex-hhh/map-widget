@@ -2,7 +2,7 @@
 ;; main.rkt -- main file for the map-widget package, exports the widgets
 ;;
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps based on OpenStreetMap tiles
-;; Copyright (c) 2020, 2023 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2020, 2023, 2026 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -45,13 +45,15 @@
          points-layer%
          point-cloud-layer%
          current-location-layer%
+         user-click-layer%
 
          lines-layer
          line-layer
          points-layer
          markers-layer
          point-cloud-layer
-         current-location-layer)
+         current-location-layer
+         user-click-layer)
 
 ;; Notice
 ;; To install (from within the package directory):

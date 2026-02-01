@@ -6,7 +6,7 @@
 ;; This file is part of map-widget -- A Racket GUI Widget to display maps
 ;; based on OpenStreetMap tiles
 ;;
-;; Copyright (c) 2019, 2023 Alex Harsányi <AlexHarsanyi@gmail.com>
+;; Copyright (c) 2019, 2023, 2026 Alex Harsányi <AlexHarsanyi@gmail.com>
 ;;
 ;; This program is free software: you can redistribute it and/or modify it
 ;; under the terms of the GNU Lesser General Public License as published by
@@ -253,32 +253,36 @@
     ;; Handle a mouse event.  Return #t if the event was handled, #f
     ;; otherwise.
     (define/public (on-event dc x y editorx editory event)
-      (cond ((send event button-down? 'left)
-             (set! last-mouse-x (send event get-x))
-             (set! last-mouse-y (send event get-y))
-             ;; Return as "Not handled', let others maybe handle it
-             #f)
-            ((send event button-up? 'left)
-             (set! last-mouse-x #f)
-             (set! last-mouse-y #f)
-             ;; Return as "Not handled', let others maybe handle it
-             #f)
-            ((send event dragging?)
-             (let ((mouse-x (send event get-x))
-                   (mouse-y (send event get-y)))
-               (when (and last-mouse-x last-mouse-y)
-                 (drag-map (- mouse-x last-mouse-x) (- mouse-y last-mouse-y)))
-               (set! last-mouse-x mouse-x)
-               (set! last-mouse-y mouse-y))
-             (set! auto-resize-to-fit? #f)
-             ;; Event was handled
-             #t)
-            (#t
-             ;; Else pass it on to any layers that wish to handle mouse
-             ;; events, and return true if they handled the event.
-             ;; Automatically returns #f when no layers handle the event.
-             (for/or ([l (in-list the-mouse-event-layers)])
-               (send l on-mouse-event dc x y editorx editory event)))))
+      (define handled?
+        (cond ((send event button-down? 'left)
+               (set! last-mouse-x (send event get-x))
+               (set! last-mouse-y (send event get-y))
+               ;; Return as "Not handled', let others maybe handle it
+               #f)
+              ((send event button-up? 'left)
+               (set! last-mouse-x #f)
+               (set! last-mouse-y #f)
+               ;; Return as "Not handled', let others maybe handle it
+               #f)
+              ((send event dragging?)
+               (let ((mouse-x (send event get-x))
+                     (mouse-y (send event get-y)))
+                 (when (and last-mouse-x last-mouse-y)
+                   (drag-map (- mouse-x last-mouse-x) (- mouse-y last-mouse-y)))
+                 (set! last-mouse-x mouse-x)
+                 (set! last-mouse-y mouse-y))
+               (set! auto-resize-to-fit? #f)
+               ;; Event was handled
+               #t)
+              (#t
+               #f)))
+      (if (not handled?)
+          ;; Pass it on to any layers that wish to handle mouse events, and
+          ;; return true if they handled the event.  Automatically returns #f
+          ;; when no layers handle the event.
+          (for/or ([l (in-list the-mouse-event-layers)])
+            (send l on-mouse-event dc x y editorx editory event))
+          handled?))
 
     ;; Handle a keyboard event.  Return #t if the event was handled, #f
     ;; otherwise.  Note that the wheel scroll with the mouse is received as
