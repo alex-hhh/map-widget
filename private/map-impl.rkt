@@ -30,8 +30,7 @@
   "utilities.rkt"          ; for get-pref
   "map-util.rkt"
   "tiles.rkt"
-  "layers.rkt"
-  racket/format)
+  "layers.rkt")
 
 (provide map-impl%)
 
