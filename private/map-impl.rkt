@@ -30,7 +30,8 @@
   "utilities.rkt"          ; for get-pref
   "map-util.rkt"
   "tiles.rkt"
-  "layers.rkt")
+  "layers.rkt"
+  racket/format)
 
 (provide map-impl%)
 
@@ -287,8 +288,13 @@
              (set! auto-resize-to-fit? #f)
              ;; Event was handled
              #t)
-
-            (else
+            
+            (else ;set this up so that we keep a marker for zoom-scrolling
+             (let ((mouse-x (send event get-x))
+                   (mouse-y (send event get-y)))
+               (set! last-mouse-x mouse-x)
+               (set! last-mouse-y mouse-y)
+               )
              (for/or ([l (in-list the-mouse-event-layers)])
                (send l on-mouse-event dc x y editorx editory event)))))
 
@@ -464,6 +470,17 @@
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
          ;; Don't do anything unless the zoom level actually changes
          (unless (eq? zl the-zoom-level)
+  
+           (when (and last-mouse-x last-mouse-y) ;if we have a last mouse position, hop to that
+             (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord          
+               ;shift origin point before zoom occurs
+               (let* ([p (lat-lon->npoint lat lon)]
+                      [cx (* (npoint-x p) max-coord)]
+                      [cy (* (npoint-y p) max-coord)])
+                 (set! origin-x (- cx (/ width 2)))
+                 (set! origin-y (- cy (/ height 2))))             
+               ))
+        
            (set! auto-resize-to-fit? #f)
            (let ((scale (expt 2 (- zl the-zoom-level))))
              (set! the-zoom-level zl)
@@ -471,8 +488,26 @@
              (set! max-coord (* tile-size max-tile-num))
              ;; update the origin at the new zoom level (note that we scale
              ;; around the center of the view)
+
+             ;;;;; This needs to change so that it centers the zoomed location around the cursor
+             
              (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
-             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2))))
+             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
+             )
+
+           ;
+           (when (and last-mouse-x last-mouse-y)  ;NOTE: LAST SPOT for mouse (same spot on screen)
+             ; now adjust where the center is to put zoom focus under mouse
+             (let-values ([(oldlat oldlon) (pos-local->global last-mouse-x last-mouse-y)] ;first loc
+                          [(lat lon) (pos-local->global (/ width 2) (/ height 2))]);center of screen
+               (define lat-adjust (+ lat (- lat oldlat)))
+               (define lon-adjust (+ lon (- lon oldlon)))
+                          (let* ([p (lat-lon->npoint lat-adjust lon-adjust)]
+                      [cx (* (npoint-x p) max-coord)]
+                      [cy (* (npoint-y p) max-coord)])
+                 (set! origin-x (- cx (/ width 2)))
+                 (set! origin-y (- cy (/ height 2))))             
+               ))
            (limit-origin width height)
            (for ([l (in-list the-layers)])
              (send l on-zoom-level-change zl))
