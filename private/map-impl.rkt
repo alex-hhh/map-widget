@@ -458,7 +458,11 @@
 
         (send dc set-smoothing old-smoothing)))
 
-    ;; Set and get the current zoom level
+ ;; Set and get the current zoom level
+
+    (define zoom-bounced 0) ;set something so we can debounce zoom-level
+(define zoom-debounce-wait 50) ;milliseconds to wait
+    
     (public zoom-level)
     (define zoom-level
       (case-lambda
@@ -467,9 +471,12 @@
          ;; Ensure the zoom level is in the valid range
          (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
-         ;; Don't do anything unless the zoom level actually changes
-         (unless (eq? zl the-zoom-level)
-  
+         (define right-now (current-inexact-milliseconds))
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change 
+         (unless  (or
+                   (eq? zl the-zoom-level)
+                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+           (set! zoom-bounced right-now)
            (when (and last-mouse-x last-mouse-y) ;if we have a last mouse position, hop to that
              (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord          
                ;shift origin point before zoom occurs
@@ -501,7 +508,7 @@
                           [(lat lon) (pos-local->global (/ width 2) (/ height 2))]);center of screen
                (define lat-adjust (+ lat (- lat oldlat)))
                (define lon-adjust (+ lon (- lon oldlon)))
-                          (let* ([p (lat-lon->npoint lat-adjust lon-adjust)]
+               (let* ([p (lat-lon->npoint lat-adjust lon-adjust)]
                       [cx (* (npoint-x p) max-coord)]
                       [cy (* (npoint-y p) max-coord)])
                  (set! origin-x (- cx (/ width 2)))
@@ -512,6 +519,7 @@
              (send l on-zoom-level-change zl))
            (refresh)
            (on-zoom-level-change the-zoom-level))]))
+
 
     (public show-map-layer)
     (define show-map-layer
