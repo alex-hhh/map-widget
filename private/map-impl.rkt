@@ -311,11 +311,11 @@
       (case (send event get-key-code)
         [(wheel-up up add)
          (when (< the-zoom-level (max-zoom-level))
-           (zoom-level (add1 the-zoom-level)))
+           (zoom-level (add1 the-zoom-level) (send event get-key-code)))
          #t]
         [(wheel-down down subtract)
          (when (> the-zoom-level (min-zoom-level))
-           (zoom-level (sub1 the-zoom-level)))
+           (zoom-level (sub1 the-zoom-level) (send event get-key-code)))
          #t]
         [(#\c) (center-map)]
         [(#\f) (resize-to-fit)]
@@ -472,7 +472,34 @@
          (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
          (define right-now (current-inexact-milliseconds))
-         ;; Don't do anything unless the zoom level actually changes and we didn't just change 
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
+         (unless  (or
+                   (eq? zl the-zoom-level)
+                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+           (set! zoom-bounced right-now)
+           (set! auto-resize-to-fit? #f)
+           (let ((scale (expt 2 (- zl the-zoom-level))))
+             (set! the-zoom-level zl)
+             (set! max-tile-num (expt 2 the-zoom-level))
+             (set! max-coord (* tile-size max-tile-num))
+             ;; update the origin at the new zoom level (note that we scale
+             ;; around the center of the view)             
+             (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
+             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
+             )
+           (limit-origin width height)
+           (for ([l (in-list the-layers)])
+             (send l on-zoom-level-change zl))
+           (refresh)
+           (on-zoom-level-change the-zoom-level))]
+        [(zl source)
+         (cond
+           [(or (equal? source 'wheel-up) (equal? source 'wheel-down))
+         ;; Ensure the zoom level is in the valid range
+         (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
+         (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
+         (define right-now (current-inexact-milliseconds))
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
          (unless  (or
                    (eq? zl the-zoom-level)
                    (< (- right-now zoom-bounced) zoom-debounce-wait)) 
@@ -518,7 +545,12 @@
            (for ([l (in-list the-layers)])
              (send l on-zoom-level-change zl))
            (refresh)
-           (on-zoom-level-change the-zoom-level))]))
+           (on-zoom-level-change the-zoom-level))]
+           [else
+            (zoom-level zl)] ;keycode not a wheel, so not a mouse event, ignore mouse coords
+           )
+         ]
+        ))
 
 
     (public show-map-layer)
