@@ -287,8 +287,13 @@
              (set! auto-resize-to-fit? #f)
              ;; Event was handled
              #t)
-
-            (else
+            
+            (else ;set this up so that we keep a marker for zoom-scrolling
+             (let ((mouse-x (send event get-x))
+                   (mouse-y (send event get-y)))
+               (set! last-mouse-x mouse-x)
+               (set! last-mouse-y mouse-y)
+               )
              (for/or ([l (in-list the-mouse-event-layers)])
                (send l on-mouse-event dc x y editorx editory event)))))
 
@@ -306,11 +311,11 @@
       (case (send event get-key-code)
         [(wheel-up up add)
          (when (< the-zoom-level (max-zoom-level))
-           (zoom-level (add1 the-zoom-level)))
+           (zoom-level (add1 the-zoom-level) (send event get-key-code)))
          #t]
         [(wheel-down down subtract)
          (when (> the-zoom-level (min-zoom-level))
-           (zoom-level (sub1 the-zoom-level)))
+           (zoom-level (sub1 the-zoom-level) (send event get-key-code)))
          #t]
         [(#\c) (center-map)]
         [(#\f) (resize-to-fit)]
@@ -453,7 +458,11 @@
 
         (send dc set-smoothing old-smoothing)))
 
-    ;; Set and get the current zoom level
+ ;; Set and get the current zoom level
+
+    (define zoom-bounced 0) ;set something so we can debounce zoom-level
+(define zoom-debounce-wait 50) ;milliseconds to wait
+    
     (public zoom-level)
     (define zoom-level
       (case-lambda
@@ -462,8 +471,49 @@
          ;; Ensure the zoom level is in the valid range
          (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
-         ;; Don't do anything unless the zoom level actually changes
-         (unless (eq? zl the-zoom-level)
+         (define right-now (current-inexact-milliseconds))
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
+         (unless  (or
+                   (eq? zl the-zoom-level)
+                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+           (set! zoom-bounced right-now)
+           (set! auto-resize-to-fit? #f)
+           (let ((scale (expt 2 (- zl the-zoom-level))))
+             (set! the-zoom-level zl)
+             (set! max-tile-num (expt 2 the-zoom-level))
+             (set! max-coord (* tile-size max-tile-num))
+             ;; update the origin at the new zoom level (note that we scale
+             ;; around the center of the view)             
+             (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
+             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
+             )
+           (limit-origin width height)
+           (for ([l (in-list the-layers)])
+             (send l on-zoom-level-change zl))
+           (refresh)
+           (on-zoom-level-change the-zoom-level))]
+        [(zl source)
+         (cond
+           [(or (equal? source 'wheel-up) (equal? source 'wheel-down))
+         ;; Ensure the zoom level is in the valid range
+         (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
+         (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
+         (define right-now (current-inexact-milliseconds))
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
+         (unless  (or
+                   (eq? zl the-zoom-level)
+                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+           (set! zoom-bounced right-now)
+           (when (and last-mouse-x last-mouse-y) ;if we have a last mouse position, hop to that
+             (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord          
+               ;shift origin point before zoom occurs
+               (let* ([p (lat-lon->npoint lat lon)]
+                      [cx (* (npoint-x p) max-coord)]
+                      [cy (* (npoint-y p) max-coord)])
+                 (set! origin-x (- cx (/ width 2)))
+                 (set! origin-y (- cy (/ height 2))))             
+               ))
+        
            (set! auto-resize-to-fit? #f)
            (let ((scale (expt 2 (- zl the-zoom-level))))
              (set! the-zoom-level zl)
@@ -471,13 +521,37 @@
              (set! max-coord (* tile-size max-tile-num))
              ;; update the origin at the new zoom level (note that we scale
              ;; around the center of the view)
+
+             ;;;;; This needs to change so that it centers the zoomed location around the cursor
+             
              (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
-             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2))))
+             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
+             )
+
+           ;
+           (when (and last-mouse-x last-mouse-y)  ;NOTE: LAST SPOT for mouse (same spot on screen)
+             ; now adjust where the center is to put zoom focus under mouse
+             (let-values ([(oldlat oldlon) (pos-local->global last-mouse-x last-mouse-y)] ;first loc
+                          [(lat lon) (pos-local->global (/ width 2) (/ height 2))]);center of screen
+               (define lat-adjust (+ lat (- lat oldlat)))
+               (define lon-adjust (+ lon (- lon oldlon)))
+               (let* ([p (lat-lon->npoint lat-adjust lon-adjust)]
+                      [cx (* (npoint-x p) max-coord)]
+                      [cy (* (npoint-y p) max-coord)])
+                 (set! origin-x (- cx (/ width 2)))
+                 (set! origin-y (- cy (/ height 2))))             
+               ))
            (limit-origin width height)
            (for ([l (in-list the-layers)])
              (send l on-zoom-level-change zl))
            (refresh)
-           (on-zoom-level-change the-zoom-level))]))
+           (on-zoom-level-change the-zoom-level))]
+           [else
+            (zoom-level zl)] ;keycode not a wheel, so not a mouse event, ignore mouse coords
+           )
+         ]
+        ))
+
 
     (public show-map-layer)
     (define show-map-layer
