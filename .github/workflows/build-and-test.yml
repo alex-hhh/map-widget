@@ -1,0 +1,27 @@
+on: [push, pull_request]
+name: 'Build and Test'
+env:
+  THIS_PACKAGE: map-widget
+jobs:
+  build:
+    name: 'Build and Test'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: 'x64'
+          distribution: 'full'
+          variant: 'CS'
+          version: 'stable'             # always the latest version
+          dest: '${HOME}/racket'
+          sudo: never
+      - run: echo "${HOME}/racket/bin" >> ${GITHUB_PATH}
+      - run: raco pkg install --deps search-auto --type dir --name ${THIS_PACKAGE}
+      - run: raco setup --check-pkg-deps --pkgs ${THIS_PACKAGE}
+      - run: raco test --no-run-if-absent --package ${THIS_PACKAGE}
+      - name: 'Publish Test Results'
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: './**/*.xml'
