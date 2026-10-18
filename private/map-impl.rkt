@@ -34,14 +34,6 @@
 
 (provide map-impl%)
 
-;; Bitmap to draw when we don't receive a tile
-(define empty-bmp (make-bitmap tile-size tile-size #f))
-
-;; Cursors for the mouse is over the map widget -- the hand-cursor is used
-;; when the map is dragged around.
-(define hand-cursor (make-object cursor% 'hand))
-(define arrow-cursor (make-object cursor% 'arrow))
-
 ;; Set the draw context on the device context DC such that the origin is at
 ;; ORIGIN-X and ORIGIN-Y than execute THUNK, the original origin is restored
 ;; at the end.
@@ -128,6 +120,14 @@
                 [on-zoom-level-change (lambda (zl) (void))])
     (super-new)
 
+    ;; Bitmap to draw when we don't receive a tile
+    (define empty-bmp (make-bitmap tile-size tile-size #f))
+
+    ;; Cursors for the mouse is over the map widget -- the hand-cursor is used
+    ;; when the map is dragged around.
+    (define hand-cursor (make-object cursor% 'hand))
+    (define arrow-cursor (make-object cursor% 'arrow))
+
     (define debug? (get-pref 'map-widget:draw-map-bounding-box (lambda () #f)))
 
     ;; Used by {begin,end}-edit-sequence to prevent the map from being
@@ -190,6 +190,8 @@
     ;; helper method for map-snip% which needs to have a COPY method.
     (define/public (copy-from other)
       (set! the-zoom-level (send other zoom-level))
+      (set! max-tile-num (expt 2 the-zoom-level))
+      (set! max-coord (* tile-size max-tile-num))
       (define-values (ox oy) (send other get-origin))
       (set! origin-x ox)
       (set! origin-y oy)
@@ -287,7 +289,7 @@
              (set! auto-resize-to-fit? #f)
              ;; Event was handled
              #t)
-            
+
             (else ;set this up so that we keep a marker for zoom-scrolling
              (let ((mouse-x (send event get-x))
                    (mouse-y (send event get-y)))
@@ -462,7 +464,7 @@
 
     (define zoom-bounced 0) ;set something so we can debounce zoom-level
 (define zoom-debounce-wait 50) ;milliseconds to wait
-    
+
     (public zoom-level)
     (define zoom-level
       (case-lambda
@@ -472,10 +474,10 @@
          (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
          (define right-now (current-inexact-milliseconds))
-         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it
          (unless  (or
                    (eq? zl the-zoom-level)
-                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+                   (< (- right-now zoom-bounced) zoom-debounce-wait))
            (set! zoom-bounced right-now)
            (set! auto-resize-to-fit? #f)
            (let ((scale (expt 2 (- zl the-zoom-level))))
@@ -483,7 +485,7 @@
              (set! max-tile-num (expt 2 the-zoom-level))
              (set! max-coord (* tile-size max-tile-num))
              ;; update the origin at the new zoom level (note that we scale
-             ;; around the center of the view)             
+             ;; around the center of the view)
              (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
              (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
              )
@@ -499,21 +501,21 @@
          (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
          (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
          (define right-now (current-inexact-milliseconds))
-         ;; Don't do anything unless the zoom level actually changes and we didn't just change it 
+         ;; Don't do anything unless the zoom level actually changes and we didn't just change it
          (unless  (or
                    (eq? zl the-zoom-level)
-                   (< (- right-now zoom-bounced) zoom-debounce-wait)) 
+                   (< (- right-now zoom-bounced) zoom-debounce-wait))
            (set! zoom-bounced right-now)
            (when (and last-mouse-x last-mouse-y) ;if we have a last mouse position, hop to that
-             (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord          
+             (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord
                ;shift origin point before zoom occurs
                (let* ([p (lat-lon->npoint lat lon)]
                       [cx (* (npoint-x p) max-coord)]
                       [cy (* (npoint-y p) max-coord)])
                  (set! origin-x (- cx (/ width 2)))
-                 (set! origin-y (- cy (/ height 2))))             
+                 (set! origin-y (- cy (/ height 2))))
                ))
-        
+
            (set! auto-resize-to-fit? #f)
            (let ((scale (expt 2 (- zl the-zoom-level))))
              (set! the-zoom-level zl)
@@ -523,7 +525,7 @@
              ;; around the center of the view)
 
              ;;;;; This needs to change so that it centers the zoomed location around the cursor
-             
+
              (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
              (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
              )
@@ -539,7 +541,7 @@
                       [cx (* (npoint-x p) max-coord)]
                       [cy (* (npoint-y p) max-coord)])
                  (set! origin-x (- cx (/ width 2)))
-                 (set! origin-y (- cy (/ height 2))))             
+                 (set! origin-y (- cy (/ height 2))))
                ))
            (limit-origin width height)
            (for ([l (in-list the-layers)])
