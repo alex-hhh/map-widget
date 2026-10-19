@@ -22,15 +22,15 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (require
-  racket/math
-  racket/class
-  racket/gui/base
-  racket/match
-  pict
-  "utilities.rkt"          ; for get-pref
-  "map-util.rkt"
-  "tiles.rkt"
-  "layers.rkt")
+ racket/math
+ racket/class
+ racket/gui/base
+ racket/match
+ pict
+ "utilities.rkt"          ; for get-pref
+ "map-util.rkt"
+ "tiles.rkt"
+ "layers.rkt")
 
 (provide map-impl%)
 
@@ -45,34 +45,34 @@
         [old-text-fg (send dc get-text-foreground)]
         [old-text-bg (send dc get-text-background)])
     (dynamic-wind
-     (lambda ()
-       (send dc set-smoothing 'smoothed))
-     thunk
-     (lambda ()
-       (send dc set-smoothing old-smoothing)
-       (send dc set-pen old-pen)
-       (send dc set-brush old-brush)
-       (send dc set-font old-font)
-       (send dc set-text-foreground old-text-fg)
-       (send dc set-text-background old-text-bg)))))
+      (lambda ()
+        (send dc set-smoothing 'smoothed))
+      thunk
+      (lambda ()
+        (send dc set-smoothing old-smoothing)
+        (send dc set-pen old-pen)
+        (send dc set-brush old-brush)
+        (send dc set-font old-font)
+        (send dc set-text-foreground old-text-fg)
+        (send dc set-text-background old-text-bg)))))
 
 (define (with-origin dc origin-x origin-y thunk)
   (let-values (([ox oy] (send dc get-origin)))
     (dynamic-wind
-     (lambda ()
-       (send dc set-origin (- origin-x) (- origin-y)))
-     thunk
-     (lambda ()
-       (send dc set-origin ox oy)))))
+      (lambda ()
+        (send dc set-origin (- origin-x) (- origin-y)))
+      thunk
+      (lambda ()
+        (send dc set-origin ox oy)))))
 
 ;; Set a clipping rect at X,Y,WIDTH and HEIGHT onto the device context DC,
 ;; than execute THUNK.  The original clipping rect is restored at the end.
 (define (with-clipping-rect dc x y width height thunk)
   (let ([old-clipping-region (send dc get-clipping-region)])
     (dynamic-wind
-     (lambda () (send dc set-clipping-rect x y width height))
-     thunk
-     (lambda () (send dc set-clipping-region old-clipping-region)))))
+      (lambda () (send dc set-clipping-rect x y width height))
+      thunk
+      (lambda () (send dc set-clipping-region old-clipping-region)))))
 
 ;; A timer which does not restart when it is already running.  Calling `start`
 ;; on a `timer%` class will reset the alarm interval and, if `start` is called
@@ -173,6 +173,21 @@
     (define the-mouse-event-layers
       null)
     (define the-zoom-level zoom)
+    ;; Maintain a fractional zoom level, incremented/decremented in
+    ;; WHEEL-STEP's, when the user zooms in with the mouse or trackpad wheel.
+    (define fractional-zoom-level the-zoom-level)
+    ;; Amount to increase/decrease the FRACTIONAL-ZOOM-LEVEL on each wheel-up
+    ;; and wheel-down events
+    (define wheel-step 1/2)
+    ;; Last wheel zoom direction, used to detect when we change direction to
+    ;; reset the FRACTIONAL-ZOOM-LEVEL back to THE-ZOOM-LEVEL
+    (define wheel-zoom-direction #f)
+    ;; Coordinates around which we zoom the map when using a scroll
+    ;; wheel. These are the mouse coordinates adjusted for any potential
+    ;; pasteboard% coordinates
+    (define wheel-zoom-x #f)
+    (define wheel-zoom-y #f)
+
     (define max-tile-num (expt 2 the-zoom-level))
     (define max-coord (* tile-size max-tile-num))
     (define origin-x 0)
@@ -190,6 +205,10 @@
     ;; helper method for map-snip% which needs to have a COPY method.
     (define/public (copy-from other)
       (set! the-zoom-level (send other zoom-level))
+      (set! fractional-zoom-level the-zoom-level)
+      (set! wheel-zoom-direction #f)
+      (set! wheel-zoom-x #f)
+      (set! wheel-zoom-y #f)
       (set! max-tile-num (expt 2 the-zoom-level))
       (set! max-coord (* tile-size max-tile-num))
       (define-values (ox oy) (send other get-origin))
@@ -272,11 +291,20 @@
     ;; Handle a mouse event.  Return #t if the event was handled, #f
     ;; otherwise.
     (define/public (on-event dc x y editorx editory event)
+      (if (send event leaving?)
+          (begin
+            (set! wheel-zoom-x #f)
+            (set! wheel-zoom-y #f))
+          (begin
+            (set! wheel-zoom-x (- (send event get-x) x))
+            (set! wheel-zoom-y (- (send event get-y) y))))
+
       (cond ((and (send event button-up? 'left) last-mouse-x last-mouse-y)
+             ;; Handle the release of the "dragging" operation, and flag the
+             ;; event as handled, but save the mouse location, we might need
+             ;; it for mouse wheel zoom
              (set! last-mouse-x #f)
              (set! last-mouse-y #f)
-             ;; Handle the release of the "dragging" operation, and flag the
-             ;; event as handled.
              #t)
 
             ((and (send event get-left-down) (send event dragging?))
@@ -290,12 +318,8 @@
              ;; Event was handled
              #t)
 
-            (else ;set this up so that we keep a marker for zoom-scrolling
-             (let ((mouse-x (send event get-x))
-                   (mouse-y (send event get-y)))
-               (set! last-mouse-x mouse-x)
-               (set! last-mouse-y mouse-y)
-               )
+            (else
+             ;; Pass event to the mouse event handlers
              (for/or ([l (in-list the-mouse-event-layers)])
                (send l on-mouse-event dc x y editorx editory event)))))
 
@@ -311,17 +335,45 @@
       ;; Implement map zoom-in and out using the mouse wheel.  Mouse wheel
       ;; zoom is handled by the key event
       (case (send event get-key-code)
-        [(wheel-up up add)
+        [(wheel-up)
          (when (< the-zoom-level (max-zoom-level))
-           (zoom-level (add1 the-zoom-level) (send event get-key-code)))
+           (set! fractional-zoom-level
+                 (if (equal? wheel-zoom-direction 'up)
+                     (+ fractional-zoom-level wheel-step)
+                     (begin
+                       (set! wheel-zoom-direction 'up)
+                       (+ the-zoom-level wheel-step))))
+           (define-values (fixed-x fixed-y)
+             (if (and wheel-zoom-x wheel-zoom-y)
+                 (values wheel-zoom-x wheel-zoom-y)
+                 (values (/ width 2) (/ height 2))))
+           (change-zoom-level (exact-floor fractional-zoom-level) fixed-x fixed-y))
          #t]
-        [(wheel-down down subtract)
+        [(wheel-down)
          (when (> the-zoom-level (min-zoom-level))
-           (zoom-level (sub1 the-zoom-level) (send event get-key-code)))
+           (set! fractional-zoom-level
+                 (if (equal? wheel-zoom-direction 'down)
+                     (- fractional-zoom-level wheel-step)
+                     (begin
+                       (set! wheel-zoom-direction 'down)
+                       (- the-zoom-level wheel-step))))
+           (define-values (fixed-x fixed-y)
+             (if (and wheel-zoom-x wheel-zoom-y)
+                 (values wheel-zoom-x wheel-zoom-y)
+                 (values (/ width 2) (/ height 2))))
+           (change-zoom-level (exact-floor fractional-zoom-level) fixed-x fixed-y))
+         #t]
+        [(up add)
+         (when (< the-zoom-level (max-zoom-level))
+           (zoom-level (add1 the-zoom-level)))
+         #t]
+        [(down subtract)
+         (when (> the-zoom-level (min-zoom-level))
+           (zoom-level (sub1 the-zoom-level)))
          #t]
         [(#\c) (center-map)]
         [(#\f) (resize-to-fit)]
-        (else #f)))
+        [else #f]))
 
     ;; Clear the DC to a white color in the rectangle X,Y,WIDTH,HEIGHT -- this
     ;; is used when show-map-layer? is #f
@@ -377,7 +429,6 @@
                     (set! tooltip #f)   ; good for one use only
 
                     ))))))))
-
 
     ;; return the dimensions of the map
     (define/public (get-size)
@@ -460,100 +511,40 @@
 
         (send dc set-smoothing old-smoothing)))
 
- ;; Set and get the current zoom level
+    ;; Change the zoom level to ZL (if it is not already that value) while
+    ;; ensuring that the position determined by FIXED-X, FIXED-Y (in canvas
+    ;; coordinates) remains in the same position.
+    (define/private (change-zoom-level zl fixed-x fixed-y)
+      ;; Ensure the zoom level is in the valid range
+      (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
+      (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
+      ;; Don't do anything unless the zoom level actually changes and we
+      ;; didn't just change it
+      (unless (equal? zl the-zoom-level)
+        (let ((scale (expt 2 (- zl the-zoom-level))))
+          ;; update the origin at the new zoom level such that the "fixed-x"
+          ;; and "fixed-y" stay in the same place
+          (set! origin-x (- (* scale (+ origin-x fixed-x)) fixed-x))
+          (set! origin-y (- (* scale (+ origin-y fixed-y)) fixed-y)))
+        (set! auto-resize-to-fit? #f)
+        (set! the-zoom-level zl)
+        (set! fractional-zoom-level zl)
+        (set! wheel-zoom-direction #f)
+        (set! max-tile-num (expt 2 the-zoom-level))
+        (set! max-coord (* tile-size max-tile-num))
+        (limit-origin width height)
+        (for ([l (in-list the-layers)])
+          (send l on-zoom-level-change zl))
+        (refresh)
+        (on-zoom-level-change the-zoom-level)))
 
-    (define zoom-bounced 0) ;set something so we can debounce zoom-level
-(define zoom-debounce-wait 50) ;milliseconds to wait
-
+    ;; Set and get the current zoom level
     (public zoom-level)
     (define zoom-level
       (case-lambda
         [() the-zoom-level]
         [(zl)
-         ;; Ensure the zoom level is in the valid range
-         (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
-         (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
-         (define right-now (current-inexact-milliseconds))
-         ;; Don't do anything unless the zoom level actually changes and we didn't just change it
-         (unless  (or
-                   (eq? zl the-zoom-level)
-                   (< (- right-now zoom-bounced) zoom-debounce-wait))
-           (set! zoom-bounced right-now)
-           (set! auto-resize-to-fit? #f)
-           (let ((scale (expt 2 (- zl the-zoom-level))))
-             (set! the-zoom-level zl)
-             (set! max-tile-num (expt 2 the-zoom-level))
-             (set! max-coord (* tile-size max-tile-num))
-             ;; update the origin at the new zoom level (note that we scale
-             ;; around the center of the view)
-             (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
-             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
-             )
-           (limit-origin width height)
-           (for ([l (in-list the-layers)])
-             (send l on-zoom-level-change zl))
-           (refresh)
-           (on-zoom-level-change the-zoom-level))]
-        [(zl source)
-         (cond
-           [(or (equal? source 'wheel-up) (equal? source 'wheel-down))
-         ;; Ensure the zoom level is in the valid range
-         (when (> zl (max-zoom-level)) (set! zl (max-zoom-level)))
-         (when (< zl (min-zoom-level)) (set! zl (min-zoom-level)))
-         (define right-now (current-inexact-milliseconds))
-         ;; Don't do anything unless the zoom level actually changes and we didn't just change it
-         (unless  (or
-                   (eq? zl the-zoom-level)
-                   (< (- right-now zoom-bounced) zoom-debounce-wait))
-           (set! zoom-bounced right-now)
-           (when (and last-mouse-x last-mouse-y) ;if we have a last mouse position, hop to that
-             (let-values ([(lat lon) (pos-local->global last-mouse-x last-mouse-y)]);adjust coord
-               ;shift origin point before zoom occurs
-               (let* ([p (lat-lon->npoint lat lon)]
-                      [cx (* (npoint-x p) max-coord)]
-                      [cy (* (npoint-y p) max-coord)])
-                 (set! origin-x (- cx (/ width 2)))
-                 (set! origin-y (- cy (/ height 2))))
-               ))
-
-           (set! auto-resize-to-fit? #f)
-           (let ((scale (expt 2 (- zl the-zoom-level))))
-             (set! the-zoom-level zl)
-             (set! max-tile-num (expt 2 the-zoom-level))
-             (set! max-coord (* tile-size max-tile-num))
-             ;; update the origin at the new zoom level (note that we scale
-             ;; around the center of the view)
-
-             ;;;;; This needs to change so that it centers the zoomed location around the cursor
-
-             (set! origin-x (- (* scale (+ origin-x (/ width 2))) (/ width 2)))
-             (set! origin-y (- (* scale (+ origin-y (/ height 2))) (/ height 2)))
-             )
-
-           ;
-           (when (and last-mouse-x last-mouse-y)  ;NOTE: LAST SPOT for mouse (same spot on screen)
-             ; now adjust where the center is to put zoom focus under mouse
-             (let-values ([(oldlat oldlon) (pos-local->global last-mouse-x last-mouse-y)] ;first loc
-                          [(lat lon) (pos-local->global (/ width 2) (/ height 2))]);center of screen
-               (define lat-adjust (+ lat (- lat oldlat)))
-               (define lon-adjust (+ lon (- lon oldlon)))
-               (let* ([p (lat-lon->npoint lat-adjust lon-adjust)]
-                      [cx (* (npoint-x p) max-coord)]
-                      [cy (* (npoint-y p) max-coord)])
-                 (set! origin-x (- cx (/ width 2)))
-                 (set! origin-y (- cy (/ height 2))))
-               ))
-           (limit-origin width height)
-           (for ([l (in-list the-layers)])
-             (send l on-zoom-level-change zl))
-           (refresh)
-           (on-zoom-level-change the-zoom-level))]
-           [else
-            (zoom-level zl)] ;keycode not a wheel, so not a mouse event, ignore mouse coords
-           )
-         ]
-        ))
-
+         (change-zoom-level zl (/ width 2) (/ height 2))]))
 
     (public show-map-layer)
     (define show-map-layer
